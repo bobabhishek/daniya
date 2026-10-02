@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  }
+}
+
+/* Custom Festive Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #FFF9F2;
+}
+::-webkit-scrollbar-thumb {
+  background: #E5A84D;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #C2410C;
+}
+
+/* Decorative Indian Mandala Pattern Backgrounds */
+.bg-mandala-pattern {
+  background-color: #FFFDF9;
+  background-image: 
+    radial-gradient(#F5D6A5 0.75px, transparent 0.75px), 
+    radial-gradient(#F5D6A5 0.75px, #FFFDF9 0.75px);
+  background-size: 30px 30px;
+  background-position: 0 0, 15px 15px;
+}
+
+.bg-festive-hero-glow {
+  background: radial-gradient(circle at 50% 20%, rgba(254, 215, 170, 0.45) 0%, rgba(255, 237, 213, 0.2) 40%, rgba(255, 253, 249, 0) 70%);
+}
+
+/* Ornate Gold Border Motif */
+.royal-border {
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8) inset, 0 4px 20px -2px rgba(139, 17, 25, 0.06);
+}
+
+.gold-border-glow {
+  border: 1px solid #D4AF37;
+  box-shadow: 0 0 15px rgba(212, 175, 55, 0.25);
+}
+
+/* Authentic Ticket Notches & Perforation styling */
+.ticket-wrapper {
+  position: relative;
+  filter: drop-shadow(0 15px 25px rgba(110, 11, 19, 0.25));
+}
+
+.ticket-cutout-left {
+  position: absolute;
+  top: 50%;
+  left: -12px;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  background-color: #FFFDF9;
+  border-radius: 50%;
+  box-shadow: inset -2px 0 3px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+}
+
+.ticket-cutout-right {
+  position: absolute;
+  top: 50%;
+  right: -12px;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  background-color: #FFFDF9;
+  border-radius: 50%;
+  box-shadow: inset 2px 0 3px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+}
+
+/* Ticket perforated line */
+.ticket-perforation {
+  border-right: 2px dashed rgba(212, 175, 55, 0.5);
+  position: relative;
+}
+
+/* Print Specific Styles - Clean High-res Printable Tickets */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .printable-tickets-area, .printable-tickets-area * {
+    visibility: visible;
+  }
+  .printable-tickets-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

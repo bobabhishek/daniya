@@ -1,0 +1,74 @@
+SEED_REGISTRATIONS = [
+    {
+        "registrationId": "KD-001245",
+        "userId": "user_demo_1",
+        "userEmail": "aarav.sharma@example.com",
+        "userName": "Aarav Sharma",
+        "createdAt": "2026-10-02T14:15:00",
+        "dateTime": "02/10/2026, 02:15 PM",
+        "participantsSummary": "Aarav Sharma, Diya Patel, Kabir Mehta",
+        "count": 3,
+        "participantCount": 3,
+        "under20Count": 2,
+        "above20Count": 1,
+        "totalAmount": 897,
+        "amount": 897,
+        "paymentStatus": "PAID",
+        "registrationStatus": "CONFIRMED",
+        "paymentMethod": "UPI (Google Pay)",
+        "transactionId": "TXN-9F82A4B1",
+        "ticketIds": ["KD-001245-T01", "KD-001245-T02", "KD-001245-T03"],
+        "participants": [
+            {"id": "p1", "participantId": "p1", "name": "Aarav Sharma", "age": 18, "dob": "14/03/2008", "category": "STUDENT", "price": 299, "ticketId": "KD-001245-T01", "idProofType": "Aadhaar Card (with DOB)"},
+            {"id": "p2", "participantId": "p2", "name": "Diya Patel", "age": 20, "dob": "22/09/2006", "category": "STUDENT", "price": 299, "ticketId": "KD-001245-T02", "idProofType": "College ID (with DOB)"},
+            {"id": "p3", "participantId": "p3", "name": "Kabir Mehta", "age": 32, "dob": "05/11/1994", "category": "ADULT", "price": 299, "ticketId": "KD-001245-T03", "idProofType": "Driving License"}
+        ]
+    },
+    {
+        "registrationId": "KD-001246",
+        "userId": "user_demo_2",
+        "userEmail": "ananya.joshi@example.com",
+        "userName": "Ananya Joshi",
+        "createdAt": "2026-10-02T13:42:00",
+        "dateTime": "02/10/2026, 01:42 PM",
+        "participantsSummary": "Ananya Joshi",
+        "count": 1,
+        "participantCount": 1,
+        "under20Count": 1,
+        "above20Count": 0,
+        "totalAmount": 299,
+        "amount": 299,
+        "paymentStatus": "PAID",
+        "registrationStatus": "CONFIRMED",
+        "paymentMethod": "UPI (PhonePe)",
+        "transactionId": "TXN-3E41B920",
+        "ticketIds": ["KD-001246-T01"],
+        "participants": [
+            {"id": "p1", "participantId": "p1", "name": "Ananya Joshi", "age": 19, "dob": "18/01/2007", "category": "STUDENT", "price": 299, "ticketId": "KD-001246-T01", "idProofType": "Aadhaar Card (with DOB)"}
+        ]
+    },
+    {
+        "registrationId": "KD-001247",
+        "userId": "user_demo_3",
+        "userEmail": "pranav.desai@example.com",
+        "userName": "Pranav Desai",
+        "createdAt": "2026-10-02T13:10:00",
+        "dateTime": "02/10/2026, 01:10 PM",
+        "participantsSummary": "Pranav Desai, Sneha Desai",
+        "count": 2,
+        "participantCount": 2,
+        "under20Count": 0,
+        "above20Count": 2,
+        "totalAmount": 598,
+        "amount": 598,
+        "paymentStatus": "PAID",
+        "registrationStatus": "CONFIRMED",
+        "paymentMethod": "UPI (Paytm)",
+        "transactionId": "TXN-8C9134D5",
+        "ticketIds": ["KD-001247-T01", "KD-001247-T02"],
+        "participants": [
+            {"id": "p1", "participantId": "p1", "name": "Pranav Desai", "age": 28, "dob": "11/06/1998", "category": "ADULT", "price": 299, "ticketId": "KD-001247-T01", "idProofType": "Passport"},
+            {"id": "p2", "participantId": "p2", "name": "Sneha Desai", "age": 26, "dob": "15/09/2000", "category": "ADULT", "price": 299, "ticketId": "KD-001247-T02", "idProofType": "Aadhaar Card (with DOB)"}
+        ]
+    }
+]
