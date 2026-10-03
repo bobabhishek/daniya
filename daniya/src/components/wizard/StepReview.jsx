@@ -1,11 +1,11 @@
 import React from 'react';
-import { ArrowLeft, ArrowRight, CheckCircle2, ShieldCheck, User, Calendar, MapPin, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, ShieldCheck, User, Calendar, MapPin, Sparkles, Loader2 } from 'lucide-react';
 import { EVENT_CONFIG } from '../../config/eventConfig';
 import { getParticipantCategory } from '../../utils/pricing';
 import { formatToIndianDate } from '../../utils/indianDateUtils';
 import StudentDiscountNotice from '../common/StudentDiscountNotice';
 
-export default function StepReview({ participants, pricingBreakdown, onBack, onProceedToPayment }) {
+export default function StepReview({ participants, pricingBreakdown, onBack, onProceedToPayment, isSubmitting = false }) {
   return (
     <div className="w-full max-w-4xl mx-auto">
       
@@ -50,7 +50,7 @@ export default function StepReview({ participants, pricingBreakdown, onBack, onP
               ATTENDEES &amp; PASS DETAILS ({participants.length})
             </h4>
             <span className="text-xs text-amber-800 font-semibold bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
-              Strict Gate 3 Age Verification
+              Venue Entry Age Verification
             </span>
           </div>
 
@@ -61,7 +61,7 @@ export default function StepReview({ participants, pricingBreakdown, onBack, onP
                   <th className="pb-3 pl-2">#</th>
                   <th className="pb-3">Participant Name</th>
                   <th className="pb-3">DOB (DD/MM/YYYY) &amp; Age</th>
-                  <th className="pb-3">Gate Verification</th>
+                  <th className="pb-3">Admission Verification</th>
                   <th className="pb-3">Category</th>
                   <th className="pb-3 text-right pr-2">Ticket Fee</th>
                 </tr>
@@ -94,7 +94,7 @@ export default function StepReview({ participants, pricingBreakdown, onBack, onP
                       <td className="py-4">
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 text-xs font-semibold">
                           <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Physical ID at Gate 3</span>
+                          <span>Physical ID at Entrance</span>
                         </span>
                       </td>
                       <td className="py-4">
@@ -117,10 +117,10 @@ export default function StepReview({ participants, pricingBreakdown, onBack, onP
             <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
             <div className="leading-relaxed">
               <p className="font-black text-xs sm:text-sm text-stone-900 uppercase tracking-wide">
-                MANDATORY PHYSICAL AGE PROOF AT GATE 3
+                MANDATORY PHYSICAL AGE PROOF AT VENUE ENTRANCE
               </p>
               <p className="mt-1 text-stone-700">
-                <strong className="text-stone-900 font-bold">Physical Age Proof (Aadhaar Card or Government Photo ID displaying DOB)</strong> is strictly required for entry at <strong>Gate 3</strong> for each attendee. Passes will be validated against physical ID cards at venue gates.
+                <strong className="text-stone-900 font-bold">Physical Age Proof (Aadhaar Card or Government Photo ID displaying DOB)</strong> is strictly required for entry at the event venue for each attendee. Passes will be validated against physical ID cards at venue gates.
               </p>
             </div>
           </div>
@@ -170,11 +170,21 @@ export default function StepReview({ participants, pricingBreakdown, onBack, onP
 
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={onProceedToPayment}
-              className="w-full sm:w-auto px-8 py-4 rounded-full text-base font-extrabold text-white bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-700 hover:to-amber-700 shadow-festive hover:shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 tracking-wide"
+              className="w-full sm:w-auto px-8 py-4 rounded-full text-base font-extrabold text-white bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-700 hover:to-amber-700 shadow-festive hover:shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 tracking-wide disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <span>PROCEED TO PAYMENT (₹{pricingBreakdown.totalAmount})</span>
-              <ArrowRight className="w-5 h-5 text-amber-200" />
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>INITIALIZING PAYMENT...</span>
+                </>
+              ) : (
+                <>
+                  <span>PROCEED TO PAYMENT (₹{pricingBreakdown.totalAmount})</span>
+                  <ArrowRight className="w-5 h-5 text-amber-200" />
+                </>
+              )}
             </button>
           </div>
 

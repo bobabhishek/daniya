@@ -1,14 +1,17 @@
 /**
- * Generate unique registration ID in the format KD-XXXXXX (e.g. KD-001245)
+ * Generate sequential registration ID in the format KD-{6 digits} (e.g. KD-000001)
+ * Used as frontend fallback/test helper; backend is authoritative.
  */
-export function generateRegistrationId() {
-  const randomNum = Math.floor(100000 + Math.random() * 900000);
-  return `KD-${randomNum}`;
+let localSequenceCounter = 1;
+
+export function generateRegistrationId(seq = null) {
+  const num = seq !== null ? seq : localSequenceCounter++;
+  return `KD-${String(num).padStart(6, '0')}`;
 }
 
 /**
  * Generate unique ticket ID for a participant index
- * @param {string} registrationId e.g. "KD-001245"
+ * @param {string} registrationId e.g. "KD-000001"
  * @param {number} index 0-based index
  */
 export function generateTicketId(registrationId, index) {
@@ -21,9 +24,10 @@ export function generateTicketId(registrationId, index) {
  */
 export function generateTransactionId() {
   const chars = '0123456789ABCDEF';
-  let result = 'MOCK-TXN-';
+  let result = 'TXN-';
   for (let i = 0; i < 8; i++) {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return result;
 }
+

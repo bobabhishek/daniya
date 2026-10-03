@@ -59,7 +59,7 @@ export const EVENT_CONFIG = {
     {
       id: "03",
       title: "Student Discount Available (Age ≤ 20).",
-      detail: "For age 20 or below, please contact Arpith Hawkz to avail the student discount. Standard entry passes are ₹299 per person. Valid age proof (Student ID / Aadhaar / Gov ID) must be presented at Gate 3."
+      detail: "For age 20 or below, please contact Arpith Hawkz to avail the student discount. Standard entry passes are ₹299 per person. Valid age proof (Student ID / Aadhaar / Gov ID) must be presented at the venue entrance."
     },
     {
       id: "04",

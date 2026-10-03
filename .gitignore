@@ -43,3 +43,20 @@ env/
 *.njsproj
 *.sln
 *.sw?
+
+# Google OAuth & Drive Credentials
+*drive_token*.json
+*token*.json
+credentials/
+storage/
+serviceAccountKey*.json
+client_secret*.json
+google_drive_token.json
+
+# Runtime receipts & scratch artifacts
+backend/receipts/
+receipts/
+scratch/
+backend/scratch/
+backend/scratch_test_live_e2e.py
+

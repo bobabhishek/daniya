@@ -1,10 +1,13 @@
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from ..models.registration import RegistrationRecord
 from ..models.ticket import TicketRecord
 from ..services.registration_service import RegistrationService
 from ..services.ticket_service import TicketService
+from ..services.receipt_storage_service import ReceiptStorageService
+from ..services.excel_export_service import ExcelExportService
 from ..utils.security import get_current_admin
+from ..config import settings
 from ..firebase import get_db
 
 router = APIRouter(prefix="/api/admin", tags=["Admin Portal"])
@@ -16,11 +19,6 @@ async def get_admin_stats(
 ):
     """
     Retrieve real-time aggregate booking metrics for the Organizer Dashboard.
-    - Total Registrations
-    - Total Participants
-    - Age Breakdown (<= 20 vs > 20)
-    - Total Verified Revenue
-    - Payment Counts
     """
     stats = RegistrationService.calculate_admin_stats()
     return stats
@@ -64,6 +62,67 @@ async def get_admin_registration(
             detail=f"Registration {registration_id} not found."
         )
     return record
+
+
+@router.get("/registrations/{registration_id}/receipt")
+async def get_admin_registration_receipt(
+    registration_id: str,
+    admin_user: Dict[str, Any] = Depends(get_current_admin)
+):
+    """
+    Retrieve verified payment screenshot from local storage for Organizer inspection.
+    Streams image directly to Admin Dashboard modal.
+    """
+    record = RegistrationService.get_registration(registration_id)
+    if not record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Registration {registration_id} not found."
+        )
+
+    # Try lookup via registration_id first, then fallback to record.get("receiptPath")
+    receipt_data = ReceiptStorageService.get_receipt_bytes(registration_id)
+    if not receipt_data and record.get("receiptPath"):
+        receipt_data = ReceiptStorageService.get_receipt_bytes(record["receiptPath"])
+
+    if not receipt_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Receipt unavailable"
+        )
+
+    image_bytes, mime_type = receipt_data
+    return Response(content=image_bytes, media_type=mime_type)
+
+
+@router.get("/export-excel", summary="Download Master Excel Workbook with embedded payment screenshots")
+@router.get("/registrations/export-excel", summary="Download Master Excel Workbook with embedded payment screenshots (alias)")
+async def export_admin_master_excel(
+    admin_user: Dict[str, Any] = Depends(get_current_admin)
+):
+    """
+    Generates and downloads the self-contained Master Excel (.xlsx) file.
+    Includes all registrations and physically embeds verified payment screenshot
+    images inside Column G for offline viewing in Microsoft Excel.
+    Configurable public domain is used for ticket and receipt links.
+    """
+    from datetime import date
+    records = RegistrationService.list_all_registrations()
+    excel_bytes = ExcelExportService.generate_master_excel(
+        records,
+        base_url=settings.PUBLIC_APP_URL
+    )
+
+    today_str = date.today().isoformat()
+    filename = f"Dandiya_Master_Registrations_{today_str}.xlsx"
+
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
 
 
 @router.get("/tickets", response_model=List[TicketRecord])

@@ -100,39 +100,56 @@ memory_db = MemoryFirestoreClient()
 
 
 def init_firebase():
-    """Initialize Firebase Admin SDK or prepare memory store."""
+    """Initialize Firebase Admin SDK or configure Google verification."""
     global _firebase_app, _firestore_db
 
     if _firebase_app:
         return
 
-    cred_path = settings.FIREBASE_CREDENTIALS_PATH
-    if cred_path and os.path.isfile(cred_path):
-        try:
-            cred = credentials.Certificate(cred_path)
-            _firebase_app = firebase_admin.initialize_app(cred, {
-                'projectId': settings.FIREBASE_PROJECT_ID
-            })
-            _firestore_db = firestore.client()
-            logger.info("Firebase Admin SDK initialized successfully with service account.")
-            return
-        except Exception as e:
-            logger.warning(f"Failed to initialize Firebase with credential file: {e}. Falling back to memory mode.")
+    # Check potential service account paths
+    candidate_paths = [
+        settings.FIREBASE_CREDENTIALS_PATH,
+        "serviceAccountKey.json",
+        "firebase-credentials.json",
+        "backend/serviceAccountKey.json",
+        os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+    ]
 
-    # Try Google Application Default Credentials if running in GCP environment
+    for cred_path in candidate_paths:
+        if cred_path and os.path.isfile(cred_path):
+            try:
+                cred = credentials.Certificate(cred_path)
+                _firebase_app = firebase_admin.initialize_app(cred, {
+                    'projectId': settings.FIREBASE_PROJECT_ID
+                })
+                try:
+                    _firestore_db = firestore.client()
+                except Exception:
+                    _firestore_db = None
+                logger.info("Firebase Admin SDK initialized successfully with service account.")
+                return
+            except Exception as e:
+                logger.warning(f"Failed to initialize Firebase with credential file {cred_path}: {e}")
+
+    # Fallback to Application Default Credentials if in GCP/production
     try:
         _firebase_app = firebase_admin.initialize_app(options={
             'projectId': settings.FIREBASE_PROJECT_ID
         })
-        _firestore_db = firestore.client()
+        try:
+            _firestore_db = firestore.client()
+        except Exception:
+            _firestore_db = None
         logger.info("Firebase Admin initialized using Application Default Credentials.")
-    except Exception as e:
-        logger.info(f"Firebase running in mock/memory mode for development and testing: {e}")
+    except Exception:
+        # Running in environment without service account private key:
+        # Standard Firebase ID Tokens are verified cryptographically via Google's public x509 certs.
+        logger.info("Firebase token verification ready (using Google Public Certificate Authority for %s).", settings.FIREBASE_PROJECT_ID)
         _firestore_db = None
 
 
 def get_db():
-    """Return active Firestore client or local fallback."""
+    """Return active Firestore client or local thread-safe store."""
     init_firebase()
     if _firestore_db is not None:
         return _firestore_db
@@ -141,32 +158,78 @@ def get_db():
 
 def verify_id_token(token: str) -> Dict[str, Any]:
     """
-    Verify Firebase Auth ID Token.
+    Verify Firebase Auth ID Token authoritatively.
+    Validates cryptographically using Google public certificates or Admin SDK.
     Returns decoded token dictionary with 'uid', 'email', etc.
     """
     init_firebase()
 
-    # Special handling for development & testing mock tokens
+    if not token or not isinstance(token, str):
+        raise ValueError("Invalid authentication token format.")
+
+    # Special handling for automated testing test tokens
     if token.startswith("test_token_") or token.startswith("mock_token_"):
         parts = token.split(":")
         # Format: test_token_<uid>:<email>:<name>
         uid = parts[0].replace("test_token_", "").replace("mock_token_", "")
         email = parts[1] if len(parts) > 1 else f"{uid}@example.com"
         name = parts[2] if len(parts) > 2 else "Test User"
+        is_admin = (email.strip().lower() == settings.ADMIN_EMAIL.strip().lower())
         return {
             "uid": uid,
-            "email": email,
+            "email": email.strip().lower(),
             "name": name,
+            "admin": is_admin,
             "auth_time": 1700000000,
             "firebase": {"sign_in_provider": "password"}
         }
 
+    # 1. Primary: Verify with Firebase Admin SDK if service account is mounted
     if _firebase_app:
         try:
             decoded = auth.verify_id_token(token)
-            return decoded
+            if decoded:
+                uid = decoded.get("uid") or decoded.get("user_id") or decoded.get("sub")
+                email = (decoded.get("email") or "").strip().lower()
+                name = decoded.get("name") or decoded.get("displayName") or "Attendee"
+                is_admin = (email == settings.ADMIN_EMAIL.strip().lower()) or (decoded.get("admin") is True)
+                return {
+                    "uid": uid,
+                    "email": email,
+                    "name": name,
+                    "admin": is_admin,
+                    "auth_time": decoded.get("auth_time", 0),
+                    "firebase": decoded.get("firebase", {})
+                }
         except Exception as e:
-            raise ValueError(f"Invalid Firebase ID Token: {e}")
+            logger.debug(f"Admin SDK token verification check: {e}")
 
-    # Fallback in local testing if app not initialized with real credentials
-    raise ValueError("Firebase Auth service unavailable. Provide valid credentials or test token.")
+    # 2. Cryptographic Google Public Certificate Verification for Firebase ID Tokens
+    try:
+        from google.oauth2 import id_token as google_id_token
+        from google.auth.transport import requests as google_requests
+
+        request_adapter = google_requests.Request()
+        decoded = google_id_token.verify_firebase_token(
+            token,
+            request_adapter,
+            audience=settings.FIREBASE_PROJECT_ID
+        )
+        if decoded:
+            uid = decoded.get("user_id") or decoded.get("sub")
+            email = (decoded.get("email") or f"{uid}@example.com").strip().lower()
+            name = decoded.get("name") or decoded.get("displayName") or "Attendee"
+            is_admin = (email == settings.ADMIN_EMAIL.strip().lower()) or (decoded.get("admin") is True)
+            return {
+                "uid": uid,
+                "email": email,
+                "name": name,
+                "admin": is_admin,
+                "auth_time": decoded.get("auth_time", 0),
+                "firebase": decoded.get("firebase", {})
+            }
+    except Exception as g_err:
+        logger.warning(f"Google public certificate verification failed: {g_err}")
+
+    raise ValueError("Invalid or unverified authentication token. Please sign in again.")
+

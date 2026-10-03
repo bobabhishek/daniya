@@ -4,8 +4,8 @@ import { Check, Users, FileCheck, CreditCard, Sparkles } from 'lucide-react';
 const STEPS = [
   { id: 1, title: 'PARTICIPANTS', subtitle: 'Add attendees', icon: Users },
   { id: 2, title: 'REVIEW', subtitle: 'Verify details', icon: FileCheck },
-  { id: 3, title: 'PAYMENT', subtitle: 'Mock checkout', icon: CreditCard },
-  { id: 4, title: 'SUCCESS', subtitle: 'Tickets issued', icon: Sparkles },
+  { id: 3, title: 'PAYMENT', subtitle: 'QR & Proof Verification', icon: CreditCard },
+  { id: 4, title: 'SUCCESS', subtitle: 'Verified entry passes', icon: Sparkles },
 ];
 
 export default function ProgressIndicator({ currentStep }) {

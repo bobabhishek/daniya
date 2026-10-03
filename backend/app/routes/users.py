@@ -1,10 +1,10 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from ..models.registration import RegistrationRecord
 from ..models.ticket import TicketRecord
 from ..services.registration_service import RegistrationService
 from ..services.ticket_service import TicketService
-from ..utils.security import get_current_user
+from ..utils.security import get_current_user, get_optional_user
 
 router = APIRouter(prefix="/api/my", tags=["User Bookings"])
 

@@ -190,7 +190,7 @@ export async function verifyDocumentDob(file, statedDob, participantName = '', d
     };
   }
 
-  // Case C: Image photo of ID card (e.g. Aadhaar photo, card scan, or file with ID keywords/year)
+    // Case C: Image photo of ID card (e.g. Aadhaar photo, card scan, or file with ID keywords/year)
   if (fileType.startsWith('image/')) {
     // If the image name specifically indicates an ID card or contains birth year
     if (matchedIdKeywordInName || dobInFileName) {
@@ -202,13 +202,13 @@ export async function verifyDocumentDob(file, statedDob, participantName = '', d
         details: [
           `Verified image proportions & ID markers`,
           `DOB (${formattedTargetDob}) linked to this photo ID`,
-          `Gate 3 scanners will match physical attendee against this photo`
+          `Scanners at event entrance will match physical attendee against this photo`
         ]
       };
     }
 
     // Standard photo upload without explicit ID keywords in filename:
-    // Mark as Verified for Gate Inspection
+    // Mark as Verified for Gate/Venue Inspection
     return {
       status: 'VERIFIED',
       dobMatched: true,
@@ -216,7 +216,7 @@ export async function verifyDocumentDob(file, statedDob, participantName = '', d
       message: `✓ Photo ID Attached: Stated DOB (${formattedTargetDob}) registered for visual verification.`,
       details: [
         `ID document image successfully captured`,
-        `Organizers will visually confirm Date of Birth (${formattedTargetDob}) at Gate 3`,
+        `Organizers will visually confirm Date of Birth (${formattedTargetDob}) at venue entrance`,
         `Ensure DOB is clearly visible in the preview`
       ]
     };
@@ -231,7 +231,7 @@ export async function verifyDocumentDob(file, statedDob, participantName = '', d
       message: `✓ Document Verified: ${file.name} registered for DOB (${formattedTargetDob}) verification.`,
       details: [
         `Official document identifier recognized`,
-        `DOB ${formattedTargetDob} verified for gate inspection`
+        `DOB ${formattedTargetDob} verified for venue entrance inspection`
       ]
     };
   }
@@ -244,7 +244,7 @@ export async function verifyDocumentDob(file, statedDob, participantName = '', d
     message: `⚠️ Unverified Document: Could not detect Date of Birth (${formattedTargetDob}) in "${file.name}". Please ensure DOB is clearly legible.`,
     details: [
       `Date of Birth (${formattedTargetDob}) was not detected in document stream`,
-      `Organizers at Gate 3 will manually inspect this file at entry`
+      `Organizers will manually inspect this file at venue entry`
     ]
   };
 }

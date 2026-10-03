@@ -9,11 +9,13 @@ import StepSuccess from './StepSuccess';
 import { calculatePricingBreakdown } from '../../utils/pricing';
 import { generateRegistrationId, generateTicketId, generateTransactionId } from '../../utils/idGenerator';
 import { useAuth } from '../../context/AuthContext';
+import { usePasses } from '../../context/PassesContext';
 import { formatToIndianDate, formatCurrentIndianDateTime } from '../../utils/indianDateUtils';
 import api from '../../services/api';
 
 export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin, onOpenAuth }) {
   const { user } = useAuth();
+  const { addVerifiedRegistration } = usePasses();
   const [currentStep, setCurrentStep] = useState(1);
   const [participants, setParticipants] = useState([
     { 
@@ -27,6 +29,8 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
       idProofType: 'Aadhaar Card (with DOB)' 
     }
   ]);
+  const [activeRegistration, setActiveRegistration] = useState(null);
+  const [isInitializingPayment, setIsInitializingPayment] = useState(false);
   const [validationError, setValidationError] = useState('');
   const [completedRegistration, setCompletedRegistration] = useState(null);
 
@@ -104,78 +108,72 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
     window.scrollTo({ top: 300, behavior: 'smooth' });
   };
 
-  // Proceed to Payment
-  const handleProceedToPayment = () => {
-    setCurrentStep(3);
-    window.scrollTo({ top: 300, behavior: 'smooth' });
+  // Proceed to Payment: Initialize authoritative registration on backend
+  const handleProceedToPayment = async () => {
+    if (!user) {
+      if (onOpenAuth) {
+        onOpenAuth('login', 'Sign In to Secure Passes', 'Please sign in or create an account so your verified passes are saved to your account.');
+      }
+      return;
+    }
+    setIsInitializingPayment(true);
+    setValidationError('');
+    try {
+      const createdRecord = await api.createRegistration(participants);
+      if (createdRecord && createdRecord.registrationId) {
+        setActiveRegistration(createdRecord);
+        setCurrentStep(3);
+        window.scrollTo({ top: 300, behavior: 'smooth' });
+      } else {
+        throw new Error('Registration reference was not created by server.');
+      }
+    } catch (err) {
+      console.error("Backend registration creation error:", err);
+      setValidationError(err.message || 'Could not initialize registration on server. Please try again.');
+    } finally {
+      setIsInitializingPayment(false);
+    }
   };
 
-  // Payment completed
-  const handlePaymentSuccess = async ({ method, paidAt, utrNumber }) => {
-    // Attempt backend creation and verification
+  // Payment completed only after backend 3-way match verification
+  const handlePaymentSuccess = async (verifiedResponse) => {
+    if (!verifiedResponse || verifiedResponse.verificationStatus !== 'VERIFIED') {
+      console.error("Payment not verified by backend. Tickets will not be issued.");
+      return;
+    }
+
     try {
-      const createdRecord = await api.createRegistration(participants, method);
-      if (createdRecord && createdRecord.registrationId) {
-        await api.verifyPayment(
-          createdRecord.registrationId,
-          utrNumber || '',
-          method,
-          true
-        );
-        const confirmedRecord = await api.getRegistration(createdRecord.registrationId);
+      const confirmedRecord = await api.getRegistration(verifiedResponse.registrationId);
+      if (confirmedRecord && confirmedRecord.verificationStatus === 'VERIFIED') {
         setCompletedRegistration(confirmedRecord);
-        onRegistrationCreated(confirmedRecord);
+        if (onRegistrationCreated) onRegistrationCreated(confirmedRecord);
         setCurrentStep(4);
         window.scrollTo({ top: 200, behavior: 'smooth' });
         return;
       }
     } catch (apiErr) {
-      console.warn("Backend API unavailable, using resilient local confirmation:", apiErr);
+      console.warn("Could not fetch full record after verification:", apiErr);
     }
 
-    // Resilient local confirmation fallback
-    const regId = generateRegistrationId();
-    const txnId = generateTransactionId();
-
-    const sortedParticipants = [...participants].sort((a, b) => (a.participantNumber || 0) - (b.participantNumber || 0));
-
-    const participantsWithTickets = sortedParticipants.map((p, index) => {
-      const ageNum = parseInt(p.age, 10);
-      const isStudent = ageNum <= 20;
-      return {
-        id: p.id,
-        participantNumber: p.participantNumber,
-        name: p.name.trim(),
-        dob: formatToIndianDate(p.dob),
-        age: ageNum,
-        idProofUrl: p.idProofUrl || '',
-        idProofName: p.idProofName || '',
-        idProofType: p.idProofType || 'Aadhaar Card (with DOB)',
-        category: isStudent ? 'STUDENT' : 'ADULT',
-        price: 299,
-        ticketId: generateTicketId(regId, index)
-      };
-    });
-
-    const newRecord = {
-      registrationId: regId,
-      dateTime: formatCurrentIndianDateTime(paidAt),
-      participantsSummary: participantsWithTickets.map(p => p.name).join(', '),
-      count: participantsWithTickets.length,
-      under20Count: pricingBreakdown.studentCount,
-      above20Count: pricingBreakdown.adultCount,
-      amount: pricingBreakdown.totalAmount,
+    // Fallback if getRegistration network is slow, construct from verifiedResponse and activeRegistration
+    const confirmed = {
+      ...(activeRegistration || {}),
+      registrationId: verifiedResponse.registrationId,
+      amount: verifiedResponse.expectedAmount || activeRegistration?.expectedAmount || pricingBreakdown.totalAmount,
+      count: activeRegistration?.participants?.length || participants.length,
       paymentStatus: 'PAID',
-      paymentMethod: method,
-      transactionId: txnId,
-      participants: participantsWithTickets,
-      userId: user ? user.uid : null,
-      userEmail: user ? user.email : null,
-      userName: user ? (user.displayName || user.email) : null
+      verificationStatus: 'VERIFIED',
+      receiptPath: verifiedResponse.receiptPath,
+      ticketIds: verifiedResponse.ticketIds || [],
+      participants: (activeRegistration?.participants || participants).map((p, index) => ({
+        ...p,
+        ticketId: verifiedResponse.ticketIds?.[index] || p.ticketId
+      }))
     };
 
-    setCompletedRegistration(newRecord);
-    onRegistrationCreated(newRecord);
+    setCompletedRegistration(confirmed);
+    addVerifiedRegistration(confirmed);
+    if (onRegistrationCreated) onRegistrationCreated(confirmed);
     setCurrentStep(4);
     window.scrollTo({ top: 200, behavior: 'smooth' });
   };
@@ -318,11 +316,18 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
                 exit={{ opacity: 0, x: 15 }}
                 transition={{ duration: 0.25 }}
               >
+                {validationError && (
+                  <div className="mb-4 max-w-4xl mx-auto p-4 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-xs font-semibold flex items-center justify-between">
+                    <span>{validationError}</span>
+                    <button onClick={() => setValidationError('')} className="text-red-600 font-bold hover:underline">Dismiss</button>
+                  </div>
+                )}
                 <StepReview
                   participants={participants}
                   pricingBreakdown={pricingBreakdown}
                   onBack={() => setCurrentStep(1)}
                   onProceedToPayment={handleProceedToPayment}
+                  isSubmitting={isInitializingPayment}
                 />
               </motion.div>
             )}
@@ -336,7 +341,11 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
                 transition={{ duration: 0.25 }}
               >
                 <StepPayment
-                  pricingBreakdown={pricingBreakdown}
+                  pricingBreakdown={{
+                    ...pricingBreakdown,
+                    totalAmount: activeRegistration?.expectedAmount ?? pricingBreakdown.totalAmount
+                  }}
+                  registrationId={activeRegistration?.registrationId}
                   onPaymentSuccess={handlePaymentSuccess}
                   onBack={() => {
                     setCurrentStep(2);
@@ -350,7 +359,7 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
               </motion.div>
             )}
 
-            {currentStep === 4 && completedRegistration && (
+            {currentStep === 4 && completedRegistration && completedRegistration.verificationStatus === 'VERIFIED' ? (
               <motion.div
                 key="step-4"
                 initial={{ opacity: 0, scale: 0.98 }}
@@ -364,7 +373,21 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
                   onOpenAdmin={onOpenAdmin}
                 />
               </motion.div>
-            )}
+            ) : currentStep === 4 ? (
+              <div className="bg-white rounded-3xl border border-red-200 p-8 text-center max-w-lg mx-auto shadow-sm">
+                <p className="text-red-700 font-bold text-base">Payment Not Verified</p>
+                <p className="text-xs text-stone-600 mt-1">
+                  Event passes are strictly protected and can only be issued after successful backend payment proof verification.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setCurrentStep(3)}
+                  className="mt-4 px-6 py-2.5 bg-royal-crimson hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-colors"
+                >
+                  Return to Payment
+                </button>
+              </div>
+            ) : null}
 
           </AnimatePresence>
         </div>

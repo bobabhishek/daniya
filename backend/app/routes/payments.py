@@ -1,9 +1,10 @@
-from typing import Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status
-from ..models.payment import PaymentOrder, PaymentVerificationRequest, PaymentVerificationResponse
+from typing import Dict, Any, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from ..models.payment import PaymentOrder, PaymentVerificationResponse
 from ..services.registration_service import RegistrationService
 from ..services.payment_service import PaymentService
 from ..utils.security import get_current_user
+from ..config import settings
 
 router = APIRouter(prefix="/api/payments", tags=["Payments"])
 
@@ -15,7 +16,6 @@ async def create_payment_order(
 ):
     """
     Generate payment order for an existing pending registration.
-    Future gateway integration point (e.g. PhonePe init).
     """
     record = RegistrationService.get_registration(registration_id)
     if not record:
@@ -35,25 +35,91 @@ async def create_payment_order(
 
     order = PaymentService.create_payment_order(
         registration_id=registration_id,
-        amount=record["totalAmount"]
+        amount=record.get("expectedAmount", record.get("totalAmount", 299))
     )
     return order
 
 
-@router.post("/verify", response_model=PaymentVerificationResponse)
-async def verify_payment(
-    request: PaymentVerificationRequest,
+@router.post("/verify-proof", response_model=PaymentVerificationResponse)
+async def verify_payment_proof(
+    registration_id: str = Form(..., description="Master registration ID"),
+    entered_amount: int = Form(..., description="Amount entered manually by the attendee"),
+    receipt: UploadFile = File(..., description="Uploaded payment receipt screenshot"),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
-    Verify payment settlement and mark registration + passes as PAID.
-    Never trusts client total amount or forced paid flag.
+    Authoritative Three-Way Payment Verification:
+    1. EXPECTED AMOUNT: Calculated authoritatively by backend from participants.
+    2. USER ENTERED AMOUNT: Submitted by attendee after receipt upload.
+    3. OCR AMOUNT: Extracted via RapidOCR from the uploaded screenshot.
+
+    CRITICAL RULES:
+    - ALL THREE MUST MATCH.
+    - If match: store receipt locally, store metadata in Firestore, mark payment VERIFIED, issue tickets.
+    - If mismatch or OCR failure: REJECT, do NOT store permanently, do NOT issue tickets.
     """
-    record = RegistrationService.get_registration(request.registrationId)
+    record = RegistrationService.get_registration(registration_id)
     if not record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Registration {request.registrationId} not found."
+            detail=f"Registration {registration_id} not found."
+        )
+
+    # User authorization (owner or admin)
+    user_uid = current_user.get("uid")
+    user_email = (current_user.get("email") or "").lower()
+    is_owner = (record.get("userId") == user_uid) or (record.get("userEmail", "").lower() == user_email)
+    is_admin = (user_email == settings.ADMIN_EMAIL.strip().lower()) or (current_user.get("admin") is True)
+
+    if not (is_owner or is_admin):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Unauthorized: You can only submit verification for your own booking."
+        )
+
+    # Validate file type
+    content_type = receipt.content_type or "image/jpeg"
+    if not (content_type.startswith("image/") or receipt.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file format. Please upload a PNG, JPG, or WebP screenshot."
+        )
+
+    # Read image bytes into memory for temporary processing
+    image_bytes = await receipt.read()
+    if len(image_bytes) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty. Please select a valid payment screenshot."
+        )
+
+    # Execute authoritative three-way verification
+    result = PaymentService.verify_payment_receipt(
+        registration_id=registration_id,
+        entered_amount=entered_amount,
+        image_bytes=image_bytes,
+        filename=receipt.filename or "payment_receipt.jpg",
+        content_type=content_type
+    )
+
+    return PaymentVerificationResponse(**result)
+
+
+@router.post("/verify", response_model=PaymentVerificationResponse)
+async def verify_payment_legacy(
+    request: dict,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Legacy verification endpoint maintained for testing environments.
+    Notice: In production, client-forced simulation is strictly disabled.
+    """
+    reg_id = request.get("registrationId")
+    record = RegistrationService.get_registration(reg_id)
+    if not record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Registration {reg_id} not found."
         )
 
     # User authorization
@@ -65,19 +131,39 @@ async def verify_payment(
             detail="Unauthorized payment verification attempt."
         )
 
-    # Perform payment verification
-    verification = PaymentService.verify_payment(
-        registration_id=request.registrationId,
-        transaction_ref=request.transactionRef,
-        method=request.paymentMethod,
-        simulate_success=request.simulateSuccess if request.simulateSuccess is not None else True
-    )
+    expected = record.get("expectedAmount", record.get("totalAmount", 299))
+    txn_id = request.get("transactionRef") or "TXN-SIMULATED"
 
-    if verification["success"]:
-        RegistrationService.mark_payment_completed(
-            registration_id=request.registrationId,
-            transaction_id=verification["transactionId"],
-            payment_method=request.paymentMethod or "UPI (Official QR)"
+    # Only allow simulated bypass in non-production environments
+    if settings.ENVIRONMENT.lower() == "production":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Simulated verification is disabled in production. Please upload receipt screenshot via /verify-proof."
         )
 
-    return PaymentVerificationResponse(**verification)
+    # In dev mode, complete verification and issue tickets
+    updated = RegistrationService.mark_payment_verified(
+        registration_id=reg_id,
+        entered_amount=expected,
+        ocr_amount=expected,
+        ocr_confidence=1.0,
+        receipt_path=None,
+        transaction_id=txn_id,
+        original_filename="dev_simulated.jpg"
+    )
+
+    return PaymentVerificationResponse(
+        success=True,
+        registrationId=reg_id,
+        expectedAmount=expected,
+        enteredAmount=expected,
+        ocrAmount=expected,
+        ocrConfidence=1.0,
+        paymentStatus="PAID",
+        verificationStatus="VERIFIED",
+        registrationStatus="CONFIRMED",
+        transactionId=txn_id,
+        receiptPath=None,
+        ticketIds=updated.get("ticketIds", []),
+        message="Dev payment verified successfully."
+    )

@@ -2,13 +2,26 @@ import { auth } from '../firebase';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+/** Public frontend URL for pass/receipt links (production: set VITE_PUBLIC_APP_URL). */
+export function getPublicAppUrl() {
+  const configured = import.meta.env.VITE_PUBLIC_APP_URL;
+  if (configured && String(configured).trim()) {
+    return String(configured).trim().replace(/\/$/, '');
+  }
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin.replace(/\/$/, '');
+  }
+  return 'http://localhost:5173';
+}
+
 /**
  * Retrieve current Firebase user ID token for API authorization.
  */
 async function getAuthToken() {
   if (auth && auth.currentUser) {
     try {
-      return await auth.currentUser.getIdToken();
+      const token = await auth.currentUser.getIdToken();
+      if (token) return token;
     } catch (e) {
       console.warn('Failed to retrieve Firebase ID token:', e);
     }
@@ -52,16 +65,17 @@ async function request(endpoint, options = {}) {
 
     return await res.json();
   } catch (err) {
-    // Re-throw with network context
     throw err;
   }
 }
 
 export const api = {
-  // Health
+  // Health & Server Session
   checkHealth: () => request('/health'),
+  verifyUserRole: () => request('/api/auth/verify-role'),
+  getSessionInfo: () => request('/api/auth/session'),
 
-  // Registrations
+  // Registrations (Step 1 -> Creates master pending record with backend expectedAmount)
   createRegistration: async (participants, paymentMethod = 'UPI (Official QR)') => {
     return await request('/api/registrations', {
       method: 'POST',
@@ -79,22 +93,63 @@ export const api = {
 
   getRegistration: (id) => request(`/api/registrations/${id}`),
 
-  // Payments
-  verifyPayment: async (registrationId, transactionRef = '', paymentMethod = 'UPI (Official QR)', simulateSuccess = true) => {
+  // Step 3 Authoritative Payment Proof Verification (Three-Way Amount Comparison)
+  verifyPaymentProof: async (registrationId, enteredAmount, file) => {
+    const token = await getAuthToken();
+    const formData = new FormData();
+    formData.append('registration_id', registrationId);
+    formData.append('entered_amount', parseInt(enteredAmount, 10));
+    formData.append('receipt', file);
+
+    const headers = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const url = `${API_BASE_URL}/api/payments/verify-proof`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: formData
+    });
+
+    if (!res.ok) {
+      let errDetail = `HTTP ${res.status}`;
+      try {
+        const errorJson = await res.json();
+        errDetail = errorJson.detail || errorJson.message || errDetail;
+      } catch {}
+      const error = new Error(errDetail);
+      error.status = res.status;
+      throw error;
+    }
+
+    return await res.json();
+  },
+
+  // Legacy fallback
+  verifyPayment: async (registrationId, transactionRef = '', paymentMethod = 'UPI (Official QR)') => {
     return await request('/api/payments/verify', {
       method: 'POST',
       body: JSON.stringify({
         registrationId,
         transactionRef,
-        paymentMethod,
-        simulateSuccess
+        paymentMethod
       })
     });
   },
 
   // User tickets & registrations
-  getMyRegistrations: () => request('/api/my/registrations'),
-  getMyTickets: () => request('/api/my/tickets'),
+  getMyRegistrations: async () => {
+    const token = await getAuthToken();
+    if (!token) return [];
+    return await request('/api/my/registrations');
+  },
+  getMyTickets: async () => {
+    const token = await getAuthToken();
+    if (!token) return [];
+    return await request('/api/my/tickets');
+  },
 
   // Admin Dashboard
   getAdminStats: () => request('/api/admin/stats'),
@@ -107,7 +162,52 @@ export const api = {
   },
   getAdminRegistration: (id) => request(`/api/admin/registrations/${id}`),
   getAdminTickets: () => request('/api/admin/tickets'),
-  getAdminTicket: (id) => request(`/api/admin/tickets/${id}`)
+  getAdminTicket: (id) => request(`/api/admin/tickets/${id}`),
+
+  // Admin Receipt URL builder
+  getAdminReceiptUrl: (registrationId) => `${API_BASE_URL}/api/admin/registrations/${registrationId}/receipt`,
+
+  // Admin Receipt Blob fetcher with Bearer Auth
+  fetchAdminReceiptBlob: async (registrationId) => {
+    const token = await getAuthToken();
+    const headers = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const res = await fetch(`${API_BASE_URL}/api/admin/registrations/${registrationId}/receipt`, {
+      headers
+    });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const errJson = await res.json();
+        detail = errJson.detail || detail;
+      } catch {
+        // ignore
+      }
+      if (res.status === 404) {
+        throw new Error('Receipt unavailable');
+      }
+      throw new Error(detail || `Receipt fetch failed (${res.status})`);
+    }
+    return await res.blob();
+  },
+
+  // Download Master Excel (.xlsx) containing embedded screenshot images
+  downloadMasterExcel: async () => {
+    const token = await getAuthToken();
+    const headers = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const res = await fetch(`${API_BASE_URL}/api/admin/export-excel`, {
+      headers
+    });
+    if (!res.ok) {
+      throw new Error(`Master Excel export failed: ${res.statusText}`);
+    }
+    return await res.blob();
+  }
 };
 
 export default api;

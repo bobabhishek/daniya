@@ -121,7 +121,7 @@ export default function IdProofPreviewModal({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-stone-400">Verification:</span>
-                  <span className="font-bold text-emerald-700">Ready for Gate 3 Scanning</span>
+                  <span className="font-bold text-emerald-700">Ready for Venue Entry Scanning</span>
                 </div>
               </div>
 

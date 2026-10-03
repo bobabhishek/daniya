@@ -16,14 +16,18 @@ class Settings(BaseSettings):
     PORT: int = 8000
     HOST: str = "0.0.0.0"
 
-    # Security & CORS
+    # Security & CORS & Public Deployment URLs
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
     ADMIN_EMAIL: str = "teamredhawkz@gmail.com"
+    PUBLIC_APP_URL: str = "http://localhost:5173"  # Production: https://YOUR-DEPLOYED-DOMAIN
 
     # Firebase Admin Settings
     FIREBASE_PROJECT_ID: str = "dhandiya-hawkz"
     FIREBASE_CREDENTIALS_PATH: str = ""  # Path to serviceAccountKey.json if present
     USE_EMULATOR_OR_MEMORY: bool = True  # Graceful fallback when serviceAccountKey is not mounted
+
+    # Local Receipt Storage Settings
+    RECEIPTS_DIR: str = "receipts"
 
     # Business & Pricing Rules
     ADULT_PRICE: int = 299
@@ -31,11 +35,13 @@ class Settings(BaseSettings):
     STUDENT_DISCOUNT_PRICE: int = 199  # Available for authorized concession vouchers
     STUDENT_AGE_MAX: int = 20
 
-    # Event Metadata (matches frontend eventConfig)
-    EVENT_NAME: str = "Dandiya Night 2026"
-    EVENT_DATE: str = "02 October 2026"
-    EVENT_TIME: str = "07:00 PM - 11:30 PM"
+    # Event Metadata (matches frontend eventConfig - single source of truth)
+    EVENT_NAME: str = "Taal Pe Nacho Re"
+    EVENT_EDITION: str = "Garba & Dandiya Night 2026"
+    EVENT_DATE: str = "10th October 2026"
+    EVENT_TIME: str = "5:00 PM Onwards"
     EVENT_VENUE: str = "TBA"
+    EVENT_LOCATION: str = "TBA"
     ORGANIZER_NAME: str = "Red Hawks School of Dance"
 
     # Payment simulation mode

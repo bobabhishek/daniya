@@ -56,7 +56,7 @@ export default function StepParticipants({
           Who's joining the celebration?
         </h2>
         <p className="mt-2 text-stone-600 text-sm sm:text-base">
-          Add attendee details. Enter Date of Birth strictly in <strong>DD/MM/YYYY</strong> for pass registration and gate verification.
+          Add attendee details. Enter Date of Birth strictly in <strong>DD/MM/YYYY</strong> for pass registration and venue admission verification.
         </p>
       </div>
 
@@ -105,17 +105,17 @@ export default function StepParticipants({
             </div>
           )}
 
-          {/* BOLD PHYSICAL AGE PROOF NOTICE AT GATE BANNER */}
+          {/* BOLD PHYSICAL AGE PROOF NOTICE AT VENUE ENTRY BANNER */}
           <div className="bg-gradient-to-r from-amber-50 via-red-50/40 to-amber-50 border-2 border-amber-300/90 rounded-2xl p-4 shadow-2xs flex items-start gap-3.5 text-stone-800">
             <div className="w-10 h-10 rounded-xl bg-amber-200/80 text-amber-900 flex items-center justify-center shrink-0 shadow-2xs mt-0.5">
               <ShieldCheck className="w-5 h-5 text-royal-crimson" />
             </div>
             <div className="text-xs sm:text-sm">
               <p className="font-black uppercase tracking-wider text-royal-crimson text-xs sm:text-xs">
-                MANDATORY GATE 3 ENTRY VERIFICATION
+                MANDATORY VENUE ENTRY VERIFICATION
               </p>
               <p className="mt-1 text-stone-700 leading-relaxed text-xs">
-                <strong className="text-stone-900 font-bold">Physical Age Proof (Aadhaar Card or Government Photo ID with DOB) will be strictly verified at Gate 3 entry.</strong> Online document upload is not required — simply ensure the entered Date of Birth matches your physical ID card on event night.
+                <strong className="text-stone-900 font-bold">Physical Age Proof (Aadhaar Card or Government Photo ID with DOB) will be strictly verified at venue entry.</strong> Online document upload is not required — simply ensure the entered Date of Birth matches your physical ID card on event night.
               </p>
             </div>
           </div>
@@ -292,15 +292,15 @@ export default function StepParticipants({
                     <StudentDiscountNotice compact className="mt-3" />
                   )}
 
-                  {/* BOLD PHYSICAL GATE 3 VERIFICATION REMINDER NOTICE */}
+                  {/* BOLD PHYSICAL VENUE VERIFICATION REMINDER NOTICE */}
                   <div className="mt-4 pt-3.5 border-t border-stone-100 flex items-start gap-2.5 text-xs text-stone-600 bg-amber-50/70 p-3 rounded-2xl border border-amber-200/90">
                     <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                     <div className="leading-relaxed">
                       <span className="font-extrabold text-stone-900 uppercase tracking-wide block sm:inline mr-1">
-                        Gate Verification Notice:
+                        Venue Verification Notice:
                       </span>
                       <span>
-                        <strong className="text-stone-900">Physical age proof (Aadhaar or Government ID with DOB)</strong> must be presented for this participant at <strong>Gate 3</strong> entry. Please ensure entered Date of Birth matches your physical document.
+                        <strong className="text-stone-900">Physical age proof (Aadhaar or Government ID with DOB)</strong> must be presented for this participant at venue entry. Please ensure entered Date of Birth matches your physical document.
                       </span>
                     </div>
                   </div>
@@ -362,10 +362,10 @@ export default function StepParticipants({
             <div className="p-3.5 rounded-2xl bg-amber-50/90 border-2 border-amber-300 text-xs text-amber-950 space-y-1.5 mb-4 shadow-2xs">
               <div className="flex items-center gap-1.5 font-black text-amber-950 uppercase tracking-wider text-[11px]">
                 <ShieldCheck className="w-4 h-4 text-royal-crimson shrink-0" />
-                <span>Entry Gate Age Verification</span>
+                <span>Venue Entry Age Verification</span>
               </div>
               <p className="text-[11px] text-stone-700 leading-relaxed">
-                <strong className="text-stone-900">Physical Age Proof (Aadhaar or Govt ID)</strong> will be strictly verified at Gate 3. No document upload is required online.
+                <strong className="text-stone-900">Physical Age Proof (Aadhaar or Govt ID)</strong> will be strictly verified at venue entrance. No document upload is required online.
               </p>
             </div>
 
@@ -418,7 +418,7 @@ export default function StepParticipants({
             </button>
 
             <p className="mt-2.5 text-center text-[11px] text-stone-400">
-              Physical ID &amp; DOB will be verified at Gate 3 entry.
+              Physical ID &amp; DOB will be verified at venue entrance.
             </p>
           </div>
         </div>

@@ -89,16 +89,6 @@ export default function Footer({ onNavigate, onOpenAdmin, onOpenMyTickets }) {
             </p>
 
             <div className="pt-2">
-              {/* Role-based link */}
-              {user && isAdmin && (
-                <button
-                  onClick={onOpenAdmin}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-amber-300 text-xs font-semibold border border-stone-700 transition-colors"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Organizer Dashboard</span>
-                </button>
-              )}
               {user && !isAdmin && (
                 <button
                   onClick={onOpenMyTickets}

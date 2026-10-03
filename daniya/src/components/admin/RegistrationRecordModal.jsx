@@ -3,10 +3,14 @@ import { X, User, ShieldCheck, Ticket, Eye, FileCheck, Calendar } from 'lucide-r
 import IdProofPreviewModal from '../common/IdProofPreviewModal';
 import { formatToIndianDate } from '../../utils/indianDateUtils';
 
-export default function RegistrationRecordModal({ record, onClose, onOpenTickets }) {
+export default function RegistrationRecordModal({ record, onClose, onOpenTickets, onViewReceipt }) {
   const [inspectingDoc, setInspectingDoc] = useState(null);
 
   if (!record) return null;
+
+  const expected = record.expectedAmount ?? record.amount;
+  const entered = record.enteredAmount ?? record.amount;
+  const ocr = record.ocrAmount ?? record.amount;
 
   return (
     <>
@@ -42,19 +46,64 @@ export default function RegistrationRecordModal({ record, onClose, onOpenTickets
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-stone-50 p-4 rounded-2xl border border-stone-200">
               <div>
                 <span className="block text-[10px] uppercase font-bold text-stone-400">Date &amp; Time</span>
-                <span className="font-bold text-stone-800">{record.dateTime}</span>
+                <span className="font-bold text-stone-800">{record.dateTime || record.uploadedAt}</span>
+              </div>
+              <div>
+                <span className="block text-[10px] uppercase font-bold text-stone-400">Verification</span>
+                <span className="font-bold text-emerald-700">{record.verificationStatus || (record.paymentStatus === 'PAID' ? 'VERIFIED' : 'PENDING')}</span>
               </div>
               <div>
                 <span className="block text-[10px] uppercase font-bold text-stone-400">Payment Status</span>
-                <span className="font-bold text-emerald-700">{record.paymentStatus}</span>
-              </div>
-              <div>
-                <span className="block text-[10px] uppercase font-bold text-stone-400">Method</span>
-                <span className="font-semibold text-stone-700 truncate block">{record.paymentMethod || 'UPI'}</span>
+                <span className="font-semibold text-stone-700 truncate block">{record.paymentStatus}</span>
               </div>
               <div>
                 <span className="block text-[10px] uppercase font-bold text-stone-400">Transaction Ref</span>
-                <span className="font-mono text-stone-700 truncate block">{record.transactionId}</span>
+                <span className="font-mono text-stone-700 truncate block">{record.upiTransactionId || record.transactionId || 'None'}</span>
+              </div>
+            </div>
+
+            {/* Payment Proof Verification Audit Section */}
+            <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-amber-900 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span>Three-Way Payment Verification Audit</span>
+                </span>
+                {onViewReceipt && (record.verificationStatus === 'VERIFIED' || record.paymentStatus === 'PAID' || record.receiptPath) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onViewReceipt(record);
+                    }}
+                    className="px-3 py-1 bg-royal-crimson hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1 shadow-2xs"
+                  >
+                    <FileCheck className="w-3.5 h-3.5 text-amber-200" />
+                    <span>View Receipt Image</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="bg-white p-2.5 rounded-xl border border-amber-200">
+                  <span className="text-[10px] text-stone-400 block font-bold uppercase">1. Expected</span>
+                  <span className="font-mono font-extrabold text-stone-900 text-sm">₹{expected}</span>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-amber-200">
+                  <span className="text-[10px] text-stone-400 block font-bold uppercase">2. User Entered</span>
+                  <span className="font-mono font-extrabold text-stone-900 text-sm">₹{entered}</span>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-amber-200">
+                  <span className="text-[10px] text-stone-400 block font-bold uppercase">3. Receipt Detected</span>
+                  <span className="font-mono font-extrabold text-emerald-700 text-sm">₹{ocr}</span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between text-[11px] text-stone-600 pt-1 border-t border-amber-200/60">
+                <span>Verified Storage: <strong>receipts/{record.registrationId}/payment_receipt.jpg</strong></span>
+                {record.ocrConfidence !== undefined && (
+                  <span>Match Confidence: <strong>{(record.ocrConfidence * 100).toFixed(0)}%</strong></span>
+                )}
               </div>
             </div>
 
@@ -152,17 +201,33 @@ export default function RegistrationRecordModal({ record, onClose, onOpenTickets
           </div>
 
           {/* Modal Footer */}
-          <div className="p-4 bg-stone-50 border-t border-stone-200 flex items-center justify-between">
-            <button
-              onClick={() => {
-                onClose();
-                onOpenTickets(record);
-              }}
-              className="px-4 py-2 text-xs font-bold text-royal-crimson bg-red-50 hover:bg-red-100 rounded-xl transition-colors flex items-center gap-1.5"
-            >
-              <Ticket className="w-3.5 h-3.5" />
-              <span>View Linked Tickets ({record.participants?.length}) &rarr;</span>
-            </button>
+          <div className="p-4 bg-stone-50 border-t border-stone-200 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  onClose();
+                  onOpenTickets(record);
+                }}
+                className="px-4 py-2 text-xs font-bold text-royal-crimson bg-red-50 hover:bg-red-100 rounded-xl transition-colors flex items-center gap-1.5"
+              >
+                <Ticket className="w-3.5 h-3.5" />
+                <span>View Linked Passes ({record.participants?.length || record.count})</span>
+              </button>
+
+              {onViewReceipt && (record.verificationStatus === 'VERIFIED' || record.paymentStatus === 'PAID' || record.receiptPath) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onViewReceipt(record);
+                  }}
+                  className="px-3.5 py-2 text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 rounded-xl transition-colors flex items-center gap-1.5"
+                >
+                  <FileCheck className="w-3.5 h-3.5 text-amber-700" />
+                  <span>View Verified Receipt</span>
+                </button>
+              )}
+            </div>
 
             <button
               onClick={onClose}

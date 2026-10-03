@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { 
   auth, 
   googleProvider,
@@ -10,7 +10,8 @@ import {
   signInWithPopup,
   onAuthStateChanged
 } from '../firebase';
-import { isAdminUser, getUserRole } from '../utils/authRoles';
+import { isAdminUser, getUserRole, verifyServerRole, clearRoleCache, ROLES } from '../utils/authRoles';
+import { useToast } from './ToastContext';
 
 // Helper to format Firebase errors into friendly messages
 export function formatAuthError(error) {
@@ -49,36 +50,125 @@ export function formatAuthError(error) {
   }
 }
 
+export const AUTH_STATUS = Object.freeze({
+  INITIALIZING: 'INITIALIZING',
+  AUTHENTICATED: 'AUTHENTICATED',
+  UNAUTHENTICATED: 'UNAUTHENTICATED',
+  ERROR: 'ERROR'
+});
+
+export const ROLE_STATUS = Object.freeze({
+  INITIALIZING: 'INITIALIZING',
+  RESOLVED: 'RESOLVED',
+  ERROR: 'ERROR'
+});
+
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [authStatus, setAuthStatus] = useState(AUTH_STATUS.INITIALIZING);
+  const [role, setRole] = useState(ROLES.GUEST);
+  const [roleStatus, setRoleStatus] = useState(ROLE_STATUS.INITIALIZING);
+  const [isServerVerified, setIsServerVerified] = useState(false);
+  const { showToast } = useToast();
 
-  // Subscribe to Firebase Auth state change on mount
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+  const sessionGenRef = useRef(0);
+  const cachedUidRef = useRef(null);
+
+  // Authoritatively resolve user and role ONCE per session
+  const resolveSession = useCallback(async (currentUser, currentGen) => {
+    if (!currentUser) {
+      if (sessionGenRef.current === currentGen) {
+        setUser(null);
+        setRole(ROLES.GUEST);
+        setAuthStatus(AUTH_STATUS.UNAUTHENTICATED);
+        setRoleStatus(ROLE_STATUS.RESOLVED);
+        setIsServerVerified(false);
+        cachedUidRef.current = null;
+      }
+      return;
+    }
+
+    // If session UID is already verified and cached in memory, do not re-verify
+    if (cachedUidRef.current === currentUser.uid && sessionGenRef.current === currentGen) {
       setUser(currentUser);
-      setLoading(false);
+      setAuthStatus(AUTH_STATUS.AUTHENTICATED);
+      setRoleStatus(ROLE_STATUS.RESOLVED);
+      return;
+    }
+
+    try {
+      const token = await currentUser.getIdToken();
+      if (sessionGenRef.current !== currentGen) return;
+
+      if (token) {
+        const verified = await verifyServerRole(token);
+        if (sessionGenRef.current === currentGen) {
+          const isKnownAdmin = isAdminUser(currentUser);
+          const resolvedRole = (verified && verified.role === ROLES.ADMIN) || isKnownAdmin ? ROLES.ADMIN : ROLES.ATTENDEE;
+          setUser(currentUser);
+          setRole(resolvedRole);
+          setAuthStatus(AUTH_STATUS.AUTHENTICATED);
+          setRoleStatus(ROLE_STATUS.RESOLVED);
+          setIsServerVerified(Boolean(verified.authenticated) || isKnownAdmin);
+          cachedUidRef.current = currentUser.uid;
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn("Server role verification issue:", err);
+    }
+
+    // Fallback if network unreachable or slow: accurately check if admin
+    if (sessionGenRef.current === currentGen) {
+      const isKnownAdmin = isAdminUser(currentUser);
+      setUser(currentUser);
+      setRole(isKnownAdmin ? ROLES.ADMIN : ROLES.ATTENDEE);
+      setAuthStatus(AUTH_STATUS.AUTHENTICATED);
+      setRoleStatus(ROLE_STATUS.RESOLVED);
+      setIsServerVerified(isKnownAdmin);
+      cachedUidRef.current = currentUser.uid;
+    }
+  }, []);
+
+  // Initialize Firebase Auth subscription ONCE on mount
+  useEffect(() => {
+    sessionGenRef.current += 1;
+    const currentGen = sessionGenRef.current;
+
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      await resolveSession(currentUser, currentGen);
     }, (error) => {
       console.error("Firebase auth state error:", error);
-      setLoading(false);
+      setAuthStatus(AUTH_STATUS.ERROR);
+      setRoleStatus(ROLE_STATUS.ERROR);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [resolveSession]);
 
   // Sign up with Email and Password
   const signup = async (email, password, displayName) => {
     try {
+      sessionGenRef.current += 1;
+      const currentGen = sessionGenRef.current;
       const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
       if (displayName && displayName.trim()) {
         await updateProfile(userCredential.user, {
           displayName: displayName.trim()
         });
-        // Force refresh user object in state
-        setUser({ ...userCredential.user, displayName: displayName.trim() });
+        userCredential.user.displayName = displayName.trim();
       }
+      
+      await resolveSession(userCredential.user, currentGen);
+
+      showToast({
+        title: 'Account Created! ✨',
+        message: `Welcome ${displayName || 'Attendee'}! Your passes will be saved to your account.`,
+        type: 'success'
+      });
+
       return { success: true, user: userCredential.user };
     } catch (error) {
       return { success: false, error, message: formatAuthError(error) };
@@ -88,7 +178,21 @@ export function AuthProvider({ children }) {
   // Sign in with Email and Password
   const login = async (email, password) => {
     try {
+      sessionGenRef.current += 1;
+      const currentGen = sessionGenRef.current;
       const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      
+      await resolveSession(userCredential.user, currentGen);
+
+      const isOrganizer = userCredential.user.email?.toLowerCase() === 'teamredhawkz@gmail.com';
+      showToast({
+        title: isOrganizer ? 'Organizer Logged In 👑' : 'Welcome Back! 🎉',
+        message: isOrganizer 
+          ? 'Organizer credentials authenticated. Administrative dashboard ready.'
+          : `Namaste, ${userCredential.user.displayName || userCredential.user.email.split('@')[0]}! Ready for Dandiya?`,
+        type: isOrganizer ? 'security' : 'success'
+      });
+
       return { success: true, user: userCredential.user };
     } catch (error) {
       return { success: false, error, message: formatAuthError(error) };
@@ -98,7 +202,19 @@ export function AuthProvider({ children }) {
   // Sign in / Sign up with Google Popup
   const loginWithGoogle = async () => {
     try {
+      sessionGenRef.current += 1;
+      const currentGen = sessionGenRef.current;
       const userCredential = await signInWithPopup(auth, googleProvider);
+      
+      await resolveSession(userCredential.user, currentGen);
+
+      const isOrganizer = userCredential.user.email?.toLowerCase() === 'teamredhawkz@gmail.com';
+      showToast({
+        title: isOrganizer ? 'Organizer Verified 👑' : 'Google Sign-In Successful 🎉',
+        message: `Welcome ${userCredential.user.displayName || 'to Dandiya 2026'}!`,
+        type: isOrganizer ? 'security' : 'success'
+      });
+
       return { success: true, user: userCredential.user };
     } catch (error) {
       return { success: false, error, message: formatAuthError(error) };
@@ -109,37 +225,69 @@ export function AuthProvider({ children }) {
   const resetPassword = async (email) => {
     try {
       await sendPasswordResetEmail(auth, email.trim());
+      showToast({
+        title: 'Reset Link Sent 📬',
+        message: 'Please check your email inbox to reset your password.',
+        type: 'info'
+      });
       return { success: true, message: 'Password reset link sent to your email.' };
     } catch (error) {
       return { success: false, error, message: formatAuthError(error) };
     }
   };
 
-  // Sign out
+  // Sign out — complete invalidation of user, role, and cached credentials
   const logout = async () => {
     try {
+      sessionGenRef.current += 1;
+      cachedUidRef.current = null;
+      clearRoleCache();
+      
+      const prevName = user?.displayName || user?.email?.split('@')[0] || 'Attendee';
       await firebaseSignOut(auth);
+
+      setUser(null);
+      setRole(ROLES.GUEST);
+      setAuthStatus(AUTH_STATUS.UNAUTHENTICATED);
+      setRoleStatus(ROLE_STATUS.RESOLVED);
+      setIsServerVerified(false);
+
+      showToast({
+        title: 'Signed Out Successfully 👋',
+        message: `Goodbye ${prevName}. See you on the Dandiya dance floor!`,
+        type: 'info'
+      });
+
       return { success: true };
     } catch (error) {
       return { success: false, error, message: formatAuthError(error) };
     }
   };
 
-  const isAdmin = isAdminUser(user);
-  const role = getUserRole(user);
+  const isAdmin = role === ROLES.ADMIN;
+  const isAttendee = role === ROLES.ATTENDEE;
+  const isGuest = role === ROLES.GUEST;
+  const isAuthenticated = authStatus === AUTH_STATUS.AUTHENTICATED;
+  const loading = authStatus === AUTH_STATUS.INITIALIZING || roleStatus === ROLE_STATUS.INITIALIZING;
 
-  const value = {
+  const value = Object.freeze({
     user,
-    loading,
-    isAuthenticated: !!user,
-    isAdmin,
+    authStatus,
     role,
+    roleStatus,
+    isAdmin,
+    isAttendee,
+    isGuest,
+    isAuthenticated,
+    loading,
+    isServerVerified,
     signup,
     login,
     loginWithGoogle,
     resetPassword,
-    logout
-  };
+    logout,
+    refreshSession: () => resolveSession(user, sessionGenRef.current)
+  });
 
   return (
     <AuthContext.Provider value={value}>

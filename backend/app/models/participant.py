@@ -36,5 +36,5 @@ class ParticipantRecord(BaseModel):
     dob: str
     category: str = Field(..., description="'STUDENT' or 'ADULT'")
     price: int = Field(..., description="Calculated ticket fee in INR")
-    ticketId: str = Field(..., description="Assigned ticket pass ID e.g. KD-001245-T01")
+    ticketId: Optional[str] = Field(None, description="Assigned ticket pass ID e.g. KD-001245-T01 (assigned only after verification)")
     idProofType: Optional[str] = "Aadhaar Card (with DOB)"

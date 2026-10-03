@@ -1,3 +1,9 @@
+import os
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
@@ -5,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from .config import settings
 from .firebase import init_firebase, get_db
-from .routes import registrations, payments, users, admin, tickets
+from .routes import registrations, payments, users, admin, tickets, auth
 
 # Setup logging
 logging.basicConfig(
@@ -40,6 +46,13 @@ async def lifespan(app: FastAPI):
                 )
                 TicketService.save_tickets([t_obj])
         logger.info(f"Seeded {len(SEED_REGISTRATIONS)} records successfully.")
+        from .services.id_service import IdService
+        max_seq = IdService._scan_max_registration_sequence(db)
+        if max_seq > 0:
+            db.collection(IdService.COUNTER_COLLECTION).document(IdService.COUNTER_DOC_ID).set(
+                {"current": max_seq, "updatedAt": f"KD-{max_seq:06d}"},
+                merge=True,
+            )
 
     yield
     logger.info("Shutting down backend service.")
@@ -52,6 +65,16 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Security Response Headers Middleware
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
@@ -62,6 +85,7 @@ app.add_middleware(
 )
 
 # Register Routers
+app.include_router(auth.router)
 app.include_router(registrations.router)
 app.include_router(payments.router)
 app.include_router(users.router)
@@ -81,10 +105,12 @@ async def root():
 
 
 @app.get("/health", tags=["Health"])
+@app.get("/api/health", tags=["Health"])
 async def health_check():
     return {
         "status": "healthy",
         "environment": settings.ENVIRONMENT,
+        "adminConfigured": bool(settings.ADMIN_EMAIL),
         "adminEmail": settings.ADMIN_EMAIL
     }
 

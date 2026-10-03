@@ -2,6 +2,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from ..config import settings
 from ..models.ticket import TicketRecord
+from ..services.id_service import IdService
 from ..firebase import get_db
 
 
@@ -13,27 +14,55 @@ class TicketService:
         registration_id: str,
         ticket_id: str,
         participant: Dict[str, Any],
-        payment_status: str = "PENDING"
+        payment_status: str = "PAID"
     ) -> TicketRecord:
         now_str = datetime.now().isoformat()
         return TicketRecord(
             ticketId=ticket_id,
             registrationId=registration_id,
-            participantId=participant["participantId"],
+            participantId=participant.get("participantId") or participant.get("id", "p1"),
             name=participant["name"],
             participantName=participant["name"],
             age=participant["age"],
             dob=participant["dob"],
-            category=participant["category"],
-            price=participant["price"],
+            category=participant.get("category", "ADULT"),
+            price=participant.get("price", 299),
             eventName=settings.EVENT_NAME,
             eventDate=settings.EVENT_DATE,
             eventTime=settings.EVENT_TIME,
             venue=settings.EVENT_VENUE,
-            gate="GATE 3",
+            eventLocation=settings.EVENT_VENUE,
             paymentStatus=payment_status,
             createdAt=now_str
         )
+
+    @staticmethod
+    def issue_tickets_for_registration(registration_data: Dict[str, Any]) -> List[str]:
+        """
+        CRITICAL RULE:
+        Tickets MUST NOT be generated before successful payment verification.
+        This method is invoked ONLY after the three-way amount comparison succeeds.
+        """
+        reg_id = registration_data["registrationId"]
+        participants = registration_data.get("participants", [])
+        tickets_to_save: List[TicketRecord] = []
+        ticket_ids: List[str] = []
+
+        for idx, p in enumerate(participants):
+            ticket_id = IdService.generate_ticket_id(reg_id, idx)
+            ticket_ids.append(ticket_id)
+            p["ticketId"] = ticket_id
+
+            t_record = TicketService.build_ticket(
+                registration_id=reg_id,
+                ticket_id=ticket_id,
+                participant=p,
+                payment_status="PAID"
+            )
+            tickets_to_save.append(t_record)
+
+        TicketService.save_tickets(tickets_to_save)
+        return ticket_ids
 
     @staticmethod
     def save_tickets(tickets: List[TicketRecord]):

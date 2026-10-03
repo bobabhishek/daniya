@@ -122,7 +122,7 @@ export default function VerifyTicket({ ticketId }) {
                 ENTRY PASS
               </h1>
               <p className="text-[10px] text-amber-200/70 mt-0.5 italic">
-                {EVENT_CONFIG.EVENT_NAME} · Gate Verification
+                {EVENT_CONFIG.EVENT_NAME} · Entry Pass Verification
               </p>
               <div className="mt-3 h-[1px] bg-gradient-to-r from-transparent via-[#D4AF37]/70 to-transparent" />
             </div>
@@ -181,8 +181,8 @@ export default function VerifyTicket({ ticketId }) {
 
               <VerifyRow
                 icon={<MapPin className="w-4 h-4 text-amber-400" />}
-                label="Gate"
-                value={ticket.gate || 'Gate 3'}
+                label="Event Location"
+                value={ticket.eventLocation || ticket.venue || EVENT_CONFIG.VENUE}
               />
 
               <VerifyRow

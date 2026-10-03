@@ -49,7 +49,8 @@ async def get_registration(
     user_uid = current_user.get("uid")
     user_email = (current_user.get("email") or "").lower()
     is_owner = (record.get("userId") == user_uid) or (record.get("userEmail", "").lower() == user_email)
-    is_admin = user_email == "teamredhawkz@gmail.com" or current_user.get("admin") is True
+    from ..config import settings
+    is_admin = (user_email == settings.ADMIN_EMAIL.strip().lower()) or (current_user.get("admin") is True)
 
     if not (is_owner or is_admin):
         raise HTTPException(

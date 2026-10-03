@@ -1,31 +1,91 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   X, Ticket, Calendar, Clock, MapPin, User, Download, 
-  ChevronRight, ArrowLeft, ShieldCheck, Sparkles 
+  ChevronRight, ArrowLeft, ShieldCheck, Sparkles, Loader2,
+  RefreshCw
 } from 'lucide-react';
 import TicketCard from './TicketCard';
 import { EVENT_CONFIG } from '../../config/eventConfig';
 import html2canvas from 'html2canvas';
+import { usePasses } from '../../context/PassesContext';
 
 export default function MyTicketsModal({ 
   isOpen, 
   onClose, 
   user, 
-  registrations = [], 
-  onNavigateToRegister 
+  onNavigateToRegister,
+  onSignInRequired,
+  initialRegistrationId = null,
+  initialTicketId = null,
 }) {
+  const modalPanelRef = useRef(null);
   const [selectedRegistration, setSelectedRegistration] = useState(null);
+  const { passes: userRegistrations, loading: isLoading, error: fetchError, refreshPasses } = usePasses();
+
+  // Resolve deep link if provided
+  useEffect(() => {
+    if (!isOpen || userRegistrations.length === 0) return;
+
+    if (initialRegistrationId) {
+      const deepLinked = userRegistrations.find((r) => r.registrationId === initialRegistrationId);
+      if (deepLinked) {
+        setSelectedRegistration(deepLinked);
+        return;
+      }
+    }
+
+    if (initialTicketId) {
+      const regForTicket = userRegistrations.find((r) =>
+        r.participants?.some((p) => p.ticketId === initialTicketId) ||
+        r.ticketIds?.includes(initialTicketId)
+      );
+      if (regForTicket) {
+        setSelectedRegistration(regForTicket);
+        return;
+      }
+    }
+
+    if (userRegistrations.length === 1 && !selectedRegistration) {
+      setSelectedRegistration(userRegistrations[0]);
+    }
+  }, [isOpen, userRegistrations, initialRegistrationId, initialTicketId, selectedRegistration]);
+
+  // If passes aren't loaded yet, fetch them when modal opens
+  useEffect(() => {
+    if (isOpen && user && userRegistrations.length === 0) {
+      refreshPasses();
+    }
+  }, [isOpen, user, refreshPasses, userRegistrations.length]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSelectedRegistration(null);
+    }
+  }, [isOpen]);
+
+  // Trap scroll while modal is open
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isOpen]);
+
+  const handleBookPasses = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onClose();
+    if (!user) {
+      if (onSignInRequired) onSignInRequired();
+      return;
+    }
+    if (onNavigateToRegister) onNavigateToRegister();
+  };
 
   if (!isOpen) return null;
-
-  // Filter registrations belonging ONLY to this user
-  const userRegistrations = registrations.filter(r => {
-    if (!user) return false;
-    const matchEmail = r.userEmail && r.userEmail.toLowerCase() === user.email?.toLowerCase();
-    const matchUid = r.userId && r.userId === user.uid;
-    return matchEmail || matchUid;
-  });
 
   /**
    * Called by TicketCard as onDownloadSingle(ticket, ticketVisualRef).
@@ -55,25 +115,34 @@ export default function MyTicketsModal({
     }
   }, []);
 
+
   return (
-    <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
-        {/* Backdrop */}
-        <motion.div 
+    <AnimatePresence mode="wait">
+      <div
+        className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="my-passes-title"
+      >
+        {/* Backdrop — blocks all clicks to navbar/page beneath */}
+        <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
-          className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm"
+          className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[200]"
+          aria-hidden="true"
         />
 
         {/* Modal Window */}
-        <motion.div 
+        <motion.div
+          ref={modalPanelRef}
           initial={{ opacity: 0, scale: 0.95, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 15 }}
           transition={{ duration: 0.2 }}
-          className="relative w-full max-w-4xl bg-[#FFFDF9] rounded-3xl shadow-2xl border border-amber-200/90 overflow-hidden z-10 max-h-[90vh] flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+          className="relative w-full max-w-4xl bg-[#FFFDF9] rounded-3xl shadow-2xl border border-amber-200/90 overflow-hidden z-[201] max-h-[90vh] flex flex-col pointer-events-auto"
         >
           {/* Header */}
           <div className="bg-gradient-to-r from-red-800 via-rose-700 to-amber-700 p-6 text-white flex items-center justify-between shrink-0">
@@ -91,11 +160,13 @@ export default function MyTicketsModal({
                 <Ticket className="w-6 h-6 text-amber-300" />
               </div>
               <div>
-                <h3 className="font-festive text-xl font-bold tracking-wide">
+                <h3 id="my-passes-title" className="font-festive text-xl font-bold tracking-wide">
                   {selectedRegistration ? `Booking Passes: ${selectedRegistration.registrationId}` : 'My Festival Passes'}
                 </h3>
                 <p className="text-xs text-amber-100/90">
-                  {user?.displayName || user?.email} &bull; {userRegistrations.length} {userRegistrations.length === 1 ? 'Booking' : 'Bookings'} Found
+                  {user
+                    ? `${user.displayName || user.email} • ${userRegistrations.length} ${userRegistrations.length === 1 ? 'Booking' : 'Bookings'} Found`
+                    : 'Sign in to view your bookings'}
                 </p>
               </div>
             </div>
@@ -110,27 +181,33 @@ export default function MyTicketsModal({
           </div>
 
           {/* Scrollable Content Body */}
-          <div className="p-6 sm:p-8 overflow-y-auto flex-grow">
-            
-            {/* Case 1: Viewing Specific Registration Tickets */}
-            {selectedRegistration ? (
-              <div className="space-y-6">
-                <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 text-xs">
+          <div className="p-3 sm:p-6 md:p-8 overflow-y-auto flex-grow">
+
+            {/* Loading State: only if no passes in memory yet */}
+            {isLoading && userRegistrations.length === 0 ? (
+              <div className="text-center py-16 px-4">
+                <Loader2 className="w-10 h-10 text-amber-600 animate-spin mx-auto mb-3" />
+                <p className="text-sm font-bold text-stone-800">Retrieving Your Verified Passes...</p>
+                <p className="text-xs text-stone-400 mt-1">Fetching admission passes securely from backend</p>
+              </div>
+            ) : selectedRegistration ? (
+              <div className="space-y-4 sm:space-y-6">
+                <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-3 sm:p-4 grid grid-cols-2 sm:flex sm:flex-wrap items-center justify-between gap-3 text-xs">
                   <div>
                     <span className="font-bold text-stone-500 uppercase tracking-wider block text-[10px]">Registration ID</span>
-                    <span className="font-mono font-bold text-sm text-stone-900">{selectedRegistration.registrationId}</span>
+                    <span className="font-mono font-bold text-xs sm:text-sm text-stone-900 break-all">{selectedRegistration.registrationId}</span>
                   </div>
                   <div>
                     <span className="font-bold text-stone-500 uppercase tracking-wider block text-[10px]">Booked On</span>
-                    <span className="font-semibold text-stone-800">{selectedRegistration.dateTime}</span>
+                    <span className="font-semibold text-stone-800 text-xs sm:text-sm">{selectedRegistration.dateTime}</span>
                   </div>
                   <div>
                     <span className="font-bold text-stone-500 uppercase tracking-wider block text-[10px]">Total Paid</span>
-                    <span className="font-extrabold text-royal-crimson text-sm">₹{selectedRegistration.amount}</span>
+                    <span className="font-extrabold text-royal-crimson text-xs sm:text-sm">₹{selectedRegistration.amount}</span>
                   </div>
                   <div>
                     <span className="font-bold text-stone-500 uppercase tracking-wider block text-[10px]">Passes Issued</span>
-                    <span className="font-bold text-emerald-700">{selectedRegistration.count} Entry Passes</span>
+                    <span className="font-bold text-emerald-700 text-xs sm:text-sm">{selectedRegistration.count} Entry Passes</span>
                   </div>
                 </div>
 
@@ -146,6 +223,18 @@ export default function MyTicketsModal({
                     />
                   ))}
                 </div>
+              </div>
+            ) : fetchError ? (
+              <div className="text-center py-12 px-4 max-w-md mx-auto">
+                <p className="text-sm font-bold text-red-700">{fetchError}</p>
+                <button
+                  type="button"
+                  onClick={refreshPasses}
+                  className="mt-4 px-5 py-2 rounded-full text-xs font-bold text-white bg-royal-crimson hover:bg-red-800 inline-flex items-center gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Retry
+                </button>
               </div>
             ) : userRegistrations.length === 0 ? (
               /* Case 2: Empty State - No registrations for this user */

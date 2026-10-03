@@ -41,22 +41,22 @@ export default function Hero({ onRegisterClick, onExploreClick }) {
           </div>
 
           {/* Configurable Event Title & Tagline */}
-          <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-stone-900 tracking-tight font-festive">
+          <h1 className="text-3xl sm:text-5xl md:text-6xl font-extrabold text-stone-900 tracking-tight font-festive break-words">
             <span className="bg-gradient-to-r from-royal-crimson via-red-700 to-amber-600 bg-clip-text text-transparent">
               {EVENT_CONFIG.EVENT_NAME}
             </span>
           </h1>
 
-          <p className="mt-4 text-lg sm:text-xl md:text-2xl text-stone-700 font-medium max-w-2xl font-display italic">
+          <p className="mt-3 sm:mt-4 text-base sm:text-xl md:text-2xl text-stone-700 font-medium max-w-2xl font-display italic">
             "{EVENT_CONFIG.EVENT_TAGLINE}"
           </p>
 
-          <p className="mt-3 text-sm sm:text-base text-stone-600 max-w-xl">
+          <p className="mt-2 sm:mt-3 text-xs sm:text-base text-stone-600 max-w-xl">
             Join thousands of revellers for an unforgettable night of traditional Garba, energetic Dandiya Raas, live DJs, and royal festivities.
           </p>
 
           {/* Quick Event Metadata Chips */}
-          <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-3 w-full max-w-3xl">
+          <div className="mt-6 sm:mt-8 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3 w-full max-w-3xl">
             <div className="bg-white/80 backdrop-blur-sm p-3 rounded-xl border border-amber-200 shadow-sm flex items-center gap-2.5 text-left">
               <div className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center text-royal-crimson shrink-0">
                 <Calendar className="w-4 h-4" />

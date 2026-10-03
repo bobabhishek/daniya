@@ -5,7 +5,8 @@ from ..models.registration import (
     RegistrationCreateRequest,
     RegistrationRecord,
     PaymentStatus,
-    RegistrationStatus
+    RegistrationStatus,
+    VerificationStatus
 )
 from ..models.participant import ParticipantRecord
 from ..services.pricing_service import PricingService
@@ -20,7 +21,7 @@ def format_indian_datetime(dt: datetime) -> str:
 
 
 class RegistrationService:
-    """Core Service managing Master Registrations."""
+    """Core Service managing Master Registrations & Verified Passes."""
 
     @staticmethod
     def create_registration(
@@ -34,22 +35,18 @@ class RegistrationService:
             apply_student_discount=apply_concession_discount
         )
 
+        expected_amount = breakdown["total_amount"]
+
         # 2. Generate Master Registration ID
         reg_id = IdService.generate_registration_id()
-
-        # 3. Create Participant Records and Ticket Records
-        participant_records: List[ParticipantRecord] = []
-        ticket_ids: List[str] = []
-        tickets_to_save = []
 
         now = datetime.now()
         iso_now = now.isoformat()
         indian_now = format_indian_datetime(now)
 
+        # 3. Create Participant Records (tickets are NOT generated until payment verification succeeds)
+        participant_records: List[ParticipantRecord] = []
         for idx, p_info in enumerate(breakdown["participant_details"]):
-            ticket_id = IdService.generate_ticket_id(reg_id, idx)
-            ticket_ids.append(ticket_id)
-
             precord = ParticipantRecord(
                 id=p_info["id"],
                 participantId=p_info["participantId"],
@@ -58,19 +55,10 @@ class RegistrationService:
                 dob=p_info["dob"],
                 category=p_info["category"],
                 price=p_info["price"],
-                ticketId=ticket_id,
+                ticketId=None,  # Assigned ONLY after payment verification succeeds!
                 idProofType=p_info.get("idProofType", "Aadhaar Card (with DOB)")
             )
             participant_records.append(precord)
-
-            # Ticket pass
-            t_record = TicketService.build_ticket(
-                registration_id=reg_id,
-                ticket_id=ticket_id,
-                participant=p_info,
-                payment_status=PaymentStatus.PENDING.value
-            )
-            tickets_to_save.append(t_record)
 
         # 4. Master Registration Row
         names_summary = ", ".join([p.name for p in participant_records])
@@ -87,20 +75,21 @@ class RegistrationService:
             count=len(participant_records),
             under20Count=breakdown["under_20_count"],
             above20Count=breakdown["above_20_count"],
-            totalAmount=breakdown["total_amount"],
-            amount=breakdown["total_amount"],
+            expectedAmount=expected_amount,
+            totalAmount=expected_amount,
+            amount=expected_amount,
             paymentStatus=PaymentStatus.PENDING,
+            verificationStatus=VerificationStatus.PENDING,
             registrationStatus=RegistrationStatus.PENDING,
             paymentMethod=request.paymentMethod or "UPI (Official QR)",
             transactionId=None,
             participantsSummary=names_summary,
-            ticketIds=ticket_ids
+            ticketIds=[]  # Strictly empty until payment verification succeeds!
         )
 
-        # 5. Persist to Firestore
+        # 5. Persist Master Record to Firestore (no tickets issued yet)
         db = get_db()
         db.collection("registrations").document(reg_id).set(master_record.model_dump())
-        TicketService.save_tickets(tickets_to_save)
 
         return master_record
 
@@ -111,11 +100,22 @@ class RegistrationService:
         return doc.to_dict() if doc.exists else None
 
     @staticmethod
-    def mark_payment_completed(
+    def mark_payment_verified(
         registration_id: str,
-        transaction_id: str,
+        entered_amount: int,
+        ocr_amount: int,
+        ocr_confidence: Optional[float] = None,
+        receipt_path: Optional[str] = None,
+        transaction_id: Optional[str] = None,
+        original_filename: Optional[str] = None,
         payment_method: str = "UPI (Official QR)"
     ) -> Optional[Dict[str, Any]]:
+        """
+        Invoked ONLY after three-way amount comparison succeeds:
+        expectedAmount == enteredAmount == ocrAmount
+        1. Issues official tickets and persists them to the 'tickets' collection.
+        2. Updates Master Registration with VERIFIED status and local receipt file path.
+        """
         db = get_db()
         doc_ref = db.collection("registrations").document(registration_id)
         doc_snap = doc_ref.get()
@@ -123,42 +123,53 @@ class RegistrationService:
             return None
 
         data = doc_snap.to_dict()
+        now_iso = datetime.now().isoformat()
+        txn_ref = transaction_id or IdService.generate_transaction_id()
+
+        # Generate official individual tickets now!
+        ticket_ids = TicketService.issue_tickets_for_registration(data)
+        data["participants"] = data.get("participants", [])
+
+        # Update Master Record
         data["paymentStatus"] = PaymentStatus.PAID.value
+        data["verificationStatus"] = VerificationStatus.VERIFIED.value
         data["registrationStatus"] = RegistrationStatus.CONFIRMED.value
-        data["transactionId"] = transaction_id
+        data["enteredAmount"] = entered_amount
+        data["ocrAmount"] = ocr_amount
+        data["ocrConfidence"] = ocr_confidence
+        data["receiptPath"] = receipt_path
+        data["transactionId"] = txn_ref
         data["paymentMethod"] = payment_method
+        data["originalFilename"] = original_filename
+        data["ticketIds"] = ticket_ids
+        data["uploadedAt"] = now_iso
+        data["updatedAt"] = now_iso
 
-        doc_ref.update({
-            "paymentStatus": PaymentStatus.PAID.value,
-            "registrationStatus": RegistrationStatus.CONFIRMED.value,
-            "transactionId": transaction_id,
-            "paymentMethod": payment_method
-        })
-
-        # Also update linked tickets
-        ticket_ids = data.get("ticketIds", [])
-        TicketService.update_tickets_payment_status(ticket_ids, PaymentStatus.PAID.value)
-
-        # Update embedded participants list paymentStatus if applicable
+        doc_ref.set(data)
         return data
 
     @staticmethod
     def list_user_registrations(user_id: str, user_email: Optional[str] = None) -> List[Dict[str, Any]]:
         db = get_db()
         results: Dict[str, Dict[str, Any]] = {}
+        user_email_lower = (user_email or "").strip().lower()
 
-        # Query by userId
-        q1 = db.collection("registrations").where("userId", "==", user_id)
-        for doc in q1.stream():
+        # Scan all registrations and match by userId OR userEmail (case-insensitive)
+        # This is safe for memory DB and Firestore fallback. For large-scale Firestore
+        # use separate indexed queries per field.
+        for doc in db.collection("registrations").stream():
             data = doc.to_dict()
-            results[data["registrationId"]] = data
+            if not data:
+                continue
+            reg_id = data.get("registrationId", "")
+            stored_uid = data.get("userId") or ""
+            stored_email = (data.get("userEmail") or "").strip().lower()
 
-        # Query by userEmail if present
-        if user_email:
-            q2 = db.collection("registrations").where("userEmail", "==", user_email.lower())
-            for doc in q2.stream():
-                data = doc.to_dict()
-                results[data["registrationId"]] = data
+            uid_match = stored_uid and stored_uid == user_id
+            email_match = user_email_lower and stored_email == user_email_lower
+
+            if uid_match or email_match:
+                results[reg_id] = data
 
         # Sort descending by createdAt
         sorted_list = sorted(
@@ -194,8 +205,7 @@ class RegistrationService:
             above_20 += r.get("above20Count", 0)
             if r.get("paymentStatus") == PaymentStatus.PAID.value:
                 revenue += r.get("amount", 0) or r.get("totalAmount", 0)
-                paidCount = paid_count + 1
-                paid_count = paidCount
+                paid_count += 1
             else:
                 pending_count += 1
 

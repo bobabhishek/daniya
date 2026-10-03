@@ -15,11 +15,11 @@ export default function StudentDiscountNotice({ className = '', compact = false 
             <div className="flex items-center gap-1.5">
               <Sparkles className="w-3 h-3 text-amber-600 shrink-0" />
               <h5 className="text-[11px] sm:text-xs font-black uppercase tracking-wider text-royal-crimson font-festive">
-                AGE ≤ 20? STUDENT DISCOUNT AVAILABLE
+                Student discount available for age 20 or below
               </h5>
             </div>
-            <p className="text-[11px] text-stone-600 mt-0.5 leading-snug">
-              For age 20 or below, please contact <strong className="text-stone-900 font-bold">Arpith Hawkz</strong> to avail the student discount.
+            <p className="text-[11px] text-stone-700 mt-0.5 leading-snug font-medium">
+              Age 20 or below? Student discount available. Please contact <strong className="text-stone-900 font-bold">Arpith Hawkz</strong> to avail the student discount.
             </p>
           </div>
         </div>
@@ -42,11 +42,11 @@ export default function StudentDiscountNotice({ className = '', compact = false 
           <div className="flex items-center justify-center sm:justify-start gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
             <h4 className="text-xs sm:text-sm font-black uppercase tracking-wider text-royal-crimson font-festive">
-              AGE ≤ 20? STUDENT DISCOUNT AVAILABLE
+              Age 20 or below? Student discount available
             </h4>
           </div>
-          <p className="mt-1 text-xs sm:text-xs text-stone-700 font-medium">
-            For age 20 or below, please contact <strong className="text-stone-900 font-bold underline decoration-amber-400 decoration-2 underline-offset-2">Arpith Hawkz</strong> to avail the student discount.
+          <p className="mt-1 text-xs text-stone-700 font-medium">
+            Age 20 or below? Student discount available. Please contact <strong className="text-stone-900 font-bold underline decoration-amber-400 decoration-2 underline-offset-2">Arpith Hawkz</strong> to avail the student discount.
           </p>
         </div>
       </div>

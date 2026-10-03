@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel, Field
 
 
@@ -14,18 +14,27 @@ class PaymentOrder(BaseModel):
     createdAt: str
 
 
-class PaymentVerificationRequest(BaseModel):
-    """Client request confirming payment submission."""
-    registrationId: str = Field(..., description="ID of the registration being paid")
-    transactionRef: Optional[str] = Field(None, description="UPI reference or UTR transaction number")
-    paymentMethod: Optional[str] = Field("UPI (Official QR)", description="Method of payment")
-    simulateSuccess: Optional[bool] = Field(True, description="Flag for local/demo verification")
+class PaymentProofVerificationRequest(BaseModel):
+    """Payload for submitting payment receipt for OCR & three-way verification."""
+    registrationId: str = Field(..., description="Master registration ID being verified")
+    enteredAmount: int = Field(..., ge=1, description="Amount entered manually by user")
 
 
 class PaymentVerificationResponse(BaseModel):
+    """Authoritative response returned by backend after three-way amount comparison."""
     success: bool
     registrationId: str
-    paymentStatus: str
-    registrationStatus: str
-    transactionId: str
+    expectedAmount: int
+    enteredAmount: int
+    ocrAmount: Optional[int] = None
+    ocrConfidence: Optional[float] = None
+    paymentStatus: str  # "PAID" or "PENDING" / "FAILED"
+    verificationStatus: str  # "VERIFIED" or "FAILED"
+    registrationStatus: str  # "CONFIRMED" or "PENDING"
+    transactionId: Optional[str] = None
+    receiptPath: Optional[str] = None
+    ticketIds: List[str] = []
+    tickets: List[dict] = []  # Full ticket objects for immediate display after verification
     message: str
+    mismatchReason: Optional[str] = None
+    details: Optional[dict] = None

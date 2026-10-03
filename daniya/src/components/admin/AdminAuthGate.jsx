@@ -9,7 +9,7 @@ import { EVENT_CONFIG } from '../../config/eventConfig';
 import { ADMIN_EMAIL } from '../../utils/authRoles';
 
 export default function AdminAuthGate({ children, onBackToSite }) {
-  const { user, loading, isAdmin, login, signup, loginWithGoogle, logout } = useAuth();
+  const { user, loading, isAdmin, isServerVerified, login, signup, loginWithGoogle, logout } = useAuth();
   
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
@@ -28,19 +28,21 @@ export default function AdminAuthGate({ children, onBackToSite }) {
           <ShieldCheck className="w-8 h-8" />
         </div>
         <h3 className="font-festive text-xl font-bold text-stone-800">
-          Verifying Organizer Session...
+          Loading Organizer Session...
         </h3>
-        <p className="text-sm text-stone-500 mt-1">Please wait a moment.</p>
+        <p className="text-xs text-stone-500 mt-1">
+          Validating authorization credentials.
+        </p>
       </div>
     );
   }
 
-  // 1. If authenticated as ADMIN: render children (the AdminDashboard)
+  // 1. If authenticated and authoritatively VERIFIED as ADMIN: render children
   if (user && isAdmin) {
     return children;
   }
 
-  // 2. If authenticated as a NORMAL USER: show Access Denied / Unauthorized Barrier
+  // 2. If authenticated as a NORMAL USER / ATTENDEE: Show Tamper-Proof Access Denied Barrier
   if (user && !isAdmin) {
     return (
       <div className="min-h-screen bg-[#FFFDF9] bg-mandala-pattern flex flex-col items-center justify-center p-4 sm:p-6 text-stone-900">
@@ -54,7 +56,7 @@ export default function AdminAuthGate({ children, onBackToSite }) {
           </div>
 
           <span className="text-[11px] font-extrabold uppercase tracking-widest text-red-700 bg-red-50 px-3 py-1 rounded-full border border-red-200">
-            Access Restricted
+            Access Restricted • Role Protected
           </span>
 
           <h2 className="mt-3 text-2xl font-extrabold text-stone-900 font-festive">

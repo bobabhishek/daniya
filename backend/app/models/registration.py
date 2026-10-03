@@ -16,6 +16,12 @@ class RegistrationStatus(str, Enum):
     CANCELLED = "CANCELLED"
 
 
+class VerificationStatus(str, Enum):
+    PENDING = "PENDING"
+    VERIFIED = "VERIFIED"
+    FAILED = "FAILED"
+
+
 class RegistrationCreateRequest(BaseModel):
     """Request payload sent by frontend to initiate a booking."""
     participants: List[ParticipantInput] = Field(..., min_length=1, max_length=20, description="List of attendees")
@@ -35,11 +41,21 @@ class RegistrationRecord(BaseModel):
     count: int  # Exact alias expected by AdminDashboard & MyTicketsModal
     under20Count: int
     above20Count: int
+    expectedAmount: int = Field(..., description="Authoritative backend-calculated expected amount")
     totalAmount: int
     amount: int  # Exact alias expected by AdminDashboard & MyTicketsModal
+    finalApprovedAmount: Optional[int] = None  # Concession if approved
+    enteredAmount: Optional[int] = None  # Amount manually entered by user during proof upload
+    ocrAmount: Optional[int] = None  # Amount extracted by OCR from receipt screenshot
+    ocrConfidence: Optional[float] = None
     paymentStatus: PaymentStatus = PaymentStatus.PENDING
+    verificationStatus: VerificationStatus = VerificationStatus.PENDING
     registrationStatus: RegistrationStatus = RegistrationStatus.PENDING
     paymentMethod: Optional[str] = "UPI (Official QR)"
     transactionId: Optional[str] = None
+    receiptPath: Optional[str] = None
+    originalFilename: Optional[str] = None
     participantsSummary: str
-    ticketIds: List[str]
+    ticketIds: List[str] = Field(default_factory=list, description="Tickets assigned only after successful verification")
+    uploadedAt: Optional[str] = None
+    updatedAt: Optional[str] = None

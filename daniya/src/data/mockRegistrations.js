@@ -14,7 +14,7 @@ const withProof = (p, dobStr, docType = 'Aadhaar Card (with DOB)') => {
 };
 
 // Realistic sample registration database for Admin & Organizer view
-export const INITIAL_MOCK_REGISTRATIONS = [
+const RAW_MOCK_REGISTRATIONS = [
   {
     registrationId: "KD-001245",
     dateTime: "02/10/2026, 02:15 PM",
@@ -236,3 +236,14 @@ export const INITIAL_MOCK_REGISTRATIONS = [
     ]
   }
 ];
+
+export const INITIAL_MOCK_REGISTRATIONS = RAW_MOCK_REGISTRATIONS.map(r => ({
+  ...r,
+  expectedAmount: r.expectedAmount ?? r.amount,
+  enteredAmount: r.enteredAmount ?? r.amount,
+  ocrAmount: r.paymentStatus === 'PAID' ? (r.ocrAmount ?? r.amount) : null,
+  ocrConfidence: r.paymentStatus === 'PAID' ? 0.98 : null,
+  verificationStatus: r.paymentStatus === 'PAID' ? 'VERIFIED' : r.paymentStatus === 'FAILED' ? 'REJECTED' : 'PENDING',
+  receiptPath: r.paymentStatus === 'PAID' ? `receipts/${r.registrationId}/payment_receipt.jpg` : null,
+  uploadedAt: r.dateTime
+}));
