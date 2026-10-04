@@ -204,7 +204,8 @@ async def health_check():
         "status": "healthy",
         "environment": settings.ENVIRONMENT,
         "adminConfigured": bool(settings.ADMIN_EMAIL),
-        "adminEmail": settings.ADMIN_EMAIL
+        "adminEmail": settings.ADMIN_EMAIL,
+        "commit": "3c518b0"
     }
 
 
