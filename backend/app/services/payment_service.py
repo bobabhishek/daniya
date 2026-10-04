@@ -91,7 +91,7 @@ class PaymentService:
         )
 
         # 2. Extract OCR Amount and Metadata from Screenshot
-        ocr_result = OcrService.process_receipt(image_bytes)
+        ocr_result = OcrService.process_receipt(image_bytes, expected_amount=expected_amount)
         ocr_amount = ocr_result.get("detected_amount")
         ocr_confidence = ocr_result.get("confidence", 0.0)
         upi_ref = ocr_result.get("upi_reference")
@@ -180,6 +180,14 @@ class PaymentService:
         logger.warning(
             f"Payment verification REJECTED for {registration_id}: {mismatch_reason} "
             f"(Expected: {expected_amount}, Entered: {entered_amount}, Detected: {ocr_amount})"
+        )
+
+        # Record failed attempt on registration dossier (keeps tickets empty and status unconfirmed)
+        RegistrationService.mark_payment_failed(
+            registration_id=registration_id,
+            entered_amount=entered_amount,
+            ocr_amount=ocr_amount,
+            reason=mismatch_reason
         )
 
         return {

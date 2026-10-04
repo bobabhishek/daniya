@@ -153,6 +153,45 @@ class RegistrationService:
         return data
 
     @staticmethod
+    def mark_payment_failed(
+        registration_id: str,
+        entered_amount: Optional[int] = None,
+        ocr_amount: Optional[int] = None,
+        reason: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Record a failed payment verification attempt on the registration dossier.
+        Ensures registration remains unconfirmed (PENDING) and ticketIds strictly empty.
+        """
+        try:
+            db = get_db()
+            doc_ref = db.collection("registrations").document(registration_id)
+            doc = doc_ref.get()
+            if not doc.exists:
+                return None
+            data = doc.to_dict()
+            # Never downgrade a previously verified registration
+            if data.get("verificationStatus") == VerificationStatus.VERIFIED.value:
+                return data
+
+            now_iso = datetime.now().isoformat()
+            data["paymentStatus"] = PaymentStatus.PENDING.value
+            data["verificationStatus"] = VerificationStatus.FAILED.value
+            data["registrationStatus"] = RegistrationStatus.PENDING.value
+            data["enteredAmount"] = entered_amount
+            data["ocrAmount"] = ocr_amount
+            data["mismatchReason"] = reason
+            data["ticketIds"] = []
+            data["updatedAt"] = now_iso
+
+            doc_ref.set(data)
+            return data
+        except Exception as e:
+            logger.error(f"Error marking payment failed for {registration_id}: {e}")
+            return None
+
+
+    @staticmethod
     def list_user_registrations(user_id: str, user_email: Optional[str] = None) -> List[Dict[str, Any]]:
         try:
             db = get_db()

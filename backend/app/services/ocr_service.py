@@ -7,7 +7,7 @@ import io
 import re
 import logging
 from typing import Optional, Dict, Any, List
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 logger = logging.getLogger("dandiya_backend.ocr")
 
@@ -21,19 +21,19 @@ def get_ocr_engine():
             _ocr_engine = RapidOCR()
             logger.info("RapidOCR engine initialized successfully.")
         except Exception as e:
-            logger.error(f"Failed to initialize RapidOCR: {e}")
+            logger.error(f"Failed to initialize RapidOCR engine: {e}", exc_info=True)
             _ocr_engine = None
     return _ocr_engine
 
 
 class OcrService:
     """
-    Intelligent OCR Service specialized for Indian UPI Payment Screenshots.
+    Authoritative OCR Service specialized for Indian UPI Payment Screenshots.
     Extracts payment amounts, transaction references, and payee signatures.
     """
 
     @classmethod
-    def process_receipt(cls, image_bytes: bytes) -> Dict[str, Any]:
+    def process_receipt(cls, image_bytes: bytes, expected_amount: Optional[int] = None) -> Dict[str, Any]:
         """
         Processes receipt image bytes through RapidOCR and parses financial fields.
         Returns:
@@ -56,65 +56,99 @@ class OcrService:
                 "all_detected_numbers": []
             }
 
-        # Validate that image_bytes can be opened
+        # Validate that image_bytes can be decompressed and normalized
         try:
             img = Image.open(io.BytesIO(image_bytes))
-            # Convert RGBA/P to RGB if necessary for ONNX
             if img.mode != "RGB":
                 img = img.convert("RGB")
-            
-            # Downscale ultra-high resolution smartphone screenshots to max 1280px
-            # This speeds up CPU ONNX inference by 3-5x while preserving crisp UPI digits
-            max_dim = 1280
+
+            # Scale ultra-high-res smartphone screenshots to max 1600px
+            max_dim = 1600
             if max(img.width, img.height) > max_dim:
                 scale = max_dim / float(max(img.width, img.height))
                 new_w = max(1, int(img.width * scale))
                 new_h = max(1, int(img.height * scale))
                 img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            elif min(img.width, img.height) < 200:
+                # Upscale tiny screenshots/crops so RapidOCR detection model can resolve digits
+                scale = 2.0
+                new_w = int(img.width * scale)
+                new_h = int(img.height * scale)
+                img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
-            # Save normalized RGB bytes for OCR
+            # Save lossless PNG bytes for OCR input to avoid JPEG compression ringing
             buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=90)
+            img.save(buf, format="PNG")
             clean_bytes = buf.getvalue()
         except Exception as e:
             logger.warning(f"Image decompression error in OCR: {e}")
             clean_bytes = image_bytes
 
         engine = get_ocr_engine()
-        extracted_lines = []
-        scores = []
+        extracted_lines: List[str] = []
+        scores: List[float] = []
 
         if engine:
             try:
                 ocr_results, _ = engine(clean_bytes)
                 if ocr_results:
                     for item in ocr_results:
-                        # item format: [box_coordinates, text_str, confidence_float]
                         text = item[1].strip()
                         conf = float(item[2])
                         if text:
                             extracted_lines.append(text)
                             scores.append(conf)
+                
+                # If no text detected on first pass, attempt high-contrast enhanced pass
+                if not extracted_lines:
+                    try:
+                        contrast_img = ImageEnhance.Contrast(img).enhance(1.4)
+                        contrast_img = ImageEnhance.Sharpness(contrast_img).enhance(1.5)
+                        c_buf = io.BytesIO()
+                        contrast_img.save(c_buf, format="PNG")
+                        retry_results, _ = engine(c_buf.getvalue())
+                        if retry_results:
+                            for item in retry_results:
+                                text = item[1].strip()
+                                conf = float(item[2])
+                                if text:
+                                    extracted_lines.append(text)
+                                    scores.append(conf)
+                    except Exception as retry_err:
+                        logger.debug(f"Contrast enhancement retry skipped: {retry_err}")
             except Exception as e:
-                logger.error(f"Error during RapidOCR execution: {e}")
+                logger.error(f"Error during RapidOCR execution: {e}", exc_info=True)
 
         raw_text = "\n".join(extracted_lines)
         avg_confidence = (sum(scores) / len(scores)) if scores else 0.0
 
         # Parse financial fields from raw text lines
-        parsed = cls._parse_financial_text(extracted_lines, raw_text)
+        parsed = cls._parse_financial_text(extracted_lines, raw_text, expected_amount=expected_amount)
         parsed["raw_text"] = raw_text
         parsed["confidence"] = round(avg_confidence, 2)
+
+        logger.info(
+            f"RapidOCR Finished: detected={parsed.get('detected_amount')}, "
+            f"expected={expected_amount}, conf={parsed.get('confidence')}, "
+            f"numbers={parsed.get('all_detected_numbers')}, raw_length={len(raw_text)}"
+        )
+        logger.debug(f"RapidOCR Raw Text:\n{raw_text}")
+
         return parsed
 
     @classmethod
-    def _parse_financial_text(cls, lines: List[str], full_text: str) -> Dict[str, Any]:
+    def _parse_financial_text(
+        cls,
+        lines: List[str],
+        full_text: str,
+        expected_amount: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
         Extracts amount, UTR / UPI reference, and payee name from OCR lines.
         """
-        detected_amount: Optional[int] = None
         upi_ref: Optional[str] = None
         payee_detected = False
+        candidates: List[tuple] = []  # (priority, int_value, matched_text)
         all_detected_numbers: List[int] = []
 
         lower_full = full_text.lower()
@@ -127,68 +161,105 @@ class OcrService:
         if utr_match:
             upi_ref = utr_match.group(1).strip()
         else:
-            # Fallback: standalone 12-digit number (standard Indian banking UTR)
             twelve_digit = re.search(r"\b([0-9]{12})\b", full_text)
             if twelve_digit:
                 upi_ref = twelve_digit.group(1)
 
-        # 1. High-confidence regex: Currency symbol preceding or succeeding amount
-        # Note: OCR models frequently recognize the Indian Rupee symbol ₹ as 'B', 'R', 'F', or '₹'.
-        # Also handles ₹897, ₹ 897.00, Rs. 897, INR 897, B897.00, R897.00, etc.
-        currency_amount_patterns = [
-            r"(?:₹|rs\.?|inr|[BRF])\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)",
-            r"([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)\s*(?:₹|rs\.?|inr)",
-            r"(?:paid|amount|total|rs)\s*[:\-]?\s*([0-9]{2,5}(?:\.[0-9]{1,2})?)",
-            r"\b([0-9]{2,5})\.00\b",
-            r"\b([0-9]{2,5})\.[0-9]{2}\b",
+        def clean_num(s: str) -> Optional[int]:
+            if not s:
+                return None
+            cleaned = s.replace(",", "").strip()
+            try:
+                val = int(float(cleaned))
+                if 50 <= val <= 100000:
+                    return val
+            except ValueError:
+                pass
+            return None
+
+        # -------------------------------------------------------------------------
+        # Priority 1: High-confidence explicit currency symbol or financial keyword
+        # Handles: ₹299, ₹ 299, Rs. 299, Rs 299, INR 299, 299/-, Paid ₹299, Amount: 299
+        # -------------------------------------------------------------------------
+        p1_patterns = [
+            r"(?:₹|\u20b9|\u20a8|rs\.?|inr|re\.?)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)",
+            r"([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)\s*(?:₹|\u20b9|\u20a8|rs\.?|inr|re\.?|/-)",
+            r"(?:paid|amount|total|sum|debited|transferred|sent|payment of|rupees)\s*[:\-]?\s*(?:₹|\u20b9|\u20a8|rs\.?|inr|[?*#~]|\b[bBrRfFnN]\b)?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)",
         ]
+        for pat in p1_patterns:
+            for m in re.finditer(pat, full_text, re.IGNORECASE):
+                val = clean_num(m.group(1))
+                if val is not None:
+                    candidates.append((1, val, m.group(0)))
+                    all_detected_numbers.append(val)
 
-        for pat in currency_amount_patterns:
-            matches = re.finditer(pat, full_text, re.IGNORECASE)
-            for m in matches:
-                clean_num_str = m.group(1).replace(",", "")
-                try:
-                    val = int(float(clean_num_str))
-                    if 50 <= val <= 100000:
-                        all_detected_numbers.append(val)
-                        if detected_amount is None:
-                            detected_amount = val
-                except ValueError:
-                    continue
+        # -------------------------------------------------------------------------
+        # Priority 2: Common OCR substitutions / character mistakes for ₹ or decimals
+        # In RapidOCR (PP-OCR), the Indian Rupee symbol ₹ is frequently recognized as
+        # 'B', 'n', 'R', 'F', 'T', 'z', '?', '*', '~', or '¥'.
+        # Handles: B299.00, n299, ?299, 299.00, 1,299.00
+        # -------------------------------------------------------------------------
+        p2_patterns = [
+            r"(?:[?*#~¥£$€]|\b[bBnNrRfFtTzZ])\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)",
+            r"\b([0-9]{1,3}(?:,[0-9]{3})*)\.([0-9]{2})\b",
+        ]
+        for pat in p2_patterns:
+            for m in re.finditer(pat, full_text, re.IGNORECASE):
+                val = clean_num(m.group(1))
+                if val is not None:
+                    candidates.append((2, val, m.group(0)))
+                    all_detected_numbers.append(val)
 
-        # 2. Check individual lines for standalone currency amounts (e.g. line is just "897.00" or "897")
+        # -------------------------------------------------------------------------
+        # Priority 3: Standalone lines in OCR output
+        # UPI apps display the payment amount as a prominent standalone block:
+        # e.g. "299", "₹299", "299.00", "1,299"
+        # -------------------------------------------------------------------------
+        line_pattern = r"^[₹\u20b9\u20a8?*#~¥£$€bBnNrRfFtTzZ]?\s*([0-9]{1,3}(?:,[0-9]{3})*|[0-9]{2,5})(?:\.[0-9]{2})?\s*(?:/-)?$"
         for line in lines:
-            cleaned = line.strip().replace(",", "")
-            # Check for "₹897", "B897.00", "897.00", etc.
-            m = re.match(r"^[₹BRF]?\s*([0-9]{2,5})(?:\.[0-9]{2})?$", cleaned, re.IGNORECASE)
+            cleaned_line = line.strip()
+            m = re.match(line_pattern, cleaned_line, re.IGNORECASE)
             if m:
-                try:
-                    val = int(m.group(1))
-                    if 50 <= val <= 100000:
-                        all_detected_numbers.append(val)
-                        if detected_amount is None:
-                            detected_amount = val
-                except ValueError:
-                    pass
+                val = clean_num(m.group(1))
+                if val is not None:
+                    candidates.append((3, val, cleaned_line))
+                    all_detected_numbers.append(val)
 
-        # 3. Fallback: If amount was not preceded by currency symbol, look for valid ticket amounts
-        if detected_amount is None:
-            # Look for 3-4 digit integers in the text
-            int_matches = re.findall(r"\b([0-9]{3,5})\b", full_text)
-            for s in int_matches:
-                try:
-                    val = int(s)
-                    # Filter out years like 2026, 2025, 2024
-                    if val not in [2024, 2025, 2026, 2027]:
-                        all_detected_numbers.append(val)
-                        if detected_amount is None:
-                            detected_amount = val
-                except ValueError:
-                    pass
+        # -------------------------------------------------------------------------
+        # Priority 4: Standalone numbers in scrubbed text
+        # Filter out years (2020-2035), timestamps (10:15), dates (04/10/2026),
+        # and long reference/phone numbers (6+ digits).
+        # -------------------------------------------------------------------------
+        scrubbed = re.sub(r"\b\d{1,2}:\d{2}(?::\d{2})?\b", " ", full_text)
+        scrubbed = re.sub(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b", " ", scrubbed)
+        scrubbed = re.sub(r"\b\d{6,}\b", " ", scrubbed)
+
+        for m in re.finditer(r"\b([0-9]{2,5})\b", scrubbed):
+            val = clean_num(m.group(1))
+            if val is not None and not (2020 <= val <= 2035):
+                candidates.append((4, val, m.group(0)))
+                all_detected_numbers.append(val)
+
+        # Unique ordered list of all detected numbers
+        unique_nums = list(dict.fromkeys(all_detected_numbers))
+
+        detected_amount: Optional[int] = None
+        if candidates:
+            # Sort candidates by priority (1 is highest)
+            candidates.sort(key=lambda x: x[0])
+            # If expected_amount was provided and matches a high-confidence candidate (priority <= 3)
+            # from the receipt, select that candidate from the receipt
+            if expected_amount is not None:
+                for prio, val, _ in candidates:
+                    if val == expected_amount and prio <= 3:
+                        detected_amount = val
+                        break
+            if detected_amount is None:
+                detected_amount = candidates[0][1]
 
         return {
             "detected_amount": detected_amount,
             "upi_reference": upi_ref,
             "payee_detected": payee_detected,
-            "all_detected_numbers": list(set(all_detected_numbers))
+            "all_detected_numbers": unique_nums
         }
