@@ -95,7 +95,11 @@ async def log_requests(request: Request, call_next):
         icon = "🔴"
 
     client_ip = request.client.host if request.client else "unknown"
-    print(f"{icon} [HTTP] {request.method:<6} {request.url.path:<30} -> {code} ({duration_ms:.1f}ms) [{client_ip}]", flush=True)
+    try:
+        print(f"{icon} [HTTP] {request.method:<6} {request.url.path:<30} -> {code} ({duration_ms:.1f}ms) [{client_ip}]", flush=True)
+    except (UnicodeEncodeError, Exception):
+        tag = "[OK]" if code < 400 else "[ERR]"
+        print(f"{tag} [HTTP] {request.method:<6} {request.url.path:<30} -> {code} ({duration_ms:.1f}ms) [{client_ip}]", flush=True)
     return response
 
 # CORS Middleware: In production, strictly restrict to configured ALLOWED_ORIGINS; in development permit localhost ports
