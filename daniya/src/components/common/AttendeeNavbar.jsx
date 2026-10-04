@@ -7,6 +7,7 @@ import {
 import { EVENT_CONFIG } from '../../config/eventConfig';
 import { useAuth } from '../../context/AuthContext';
 import { usePasses } from '../../context/PassesContext';
+import { ToranGarland, DandiyaSticksIcon, DiyaIcon } from './IndianFestiveMotifs';
 
 export default function AttendeeNavbar({ 
   onNavigate, 
@@ -67,32 +68,32 @@ export default function AttendeeNavbar({
   return (
     <nav className="sticky top-0 z-50 bg-[#FFFDF9]/95 backdrop-blur-md border-b border-amber-200/60 shadow-xs transition-all">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-20">
+        <div className="flex items-center justify-between min-h-[5rem] py-2 gap-3">
           
           {/* Brand Logo & Name */}
           <div 
             onClick={() => handleNavClick('home')}
-            className="flex items-center gap-3 cursor-pointer group"
+            className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group shrink-0"
           >
-            <div className="relative h-14 w-auto flex items-center justify-center p-1 bg-white rounded-xl border border-amber-100 shadow-sm group-hover:shadow-md transition-shadow">
+            <div className="relative h-11 sm:h-13 w-auto flex items-center justify-center p-1 bg-white rounded-xl border border-amber-100 shadow-sm group-hover:shadow-md transition-shadow shrink-0">
               <img 
                 src={EVENT_CONFIG.ASSETS.LOGO} 
                 alt={EVENT_CONFIG.EVENT_NAME}
-                className="h-12 w-auto object-contain max-w-[140px]"
+                className="h-9 sm:h-11 w-auto object-contain max-w-[110px] sm:max-w-[130px]"
               />
             </div>
-            <div className="hidden sm:block">
-              <span className="block font-festive text-xl font-bold tracking-wide text-royal-crimson group-hover:text-amber-700 transition-colors">
+            <div className="hidden sm:block shrink-0">
+              <span className="block font-festive text-lg sm:text-xl font-bold tracking-wide text-royal-crimson group-hover:text-amber-700 transition-colors whitespace-nowrap">
                 {EVENT_CONFIG.EVENT_NAME}
               </span>
-              <span className="block text-xs font-semibold text-amber-700 tracking-wider uppercase">
+              <span className="block text-[11px] font-semibold text-amber-700 tracking-wider uppercase whitespace-nowrap">
                 {EVENT_CONFIG.EVENT_EDITION}
               </span>
             </div>
           </div>
 
           {/* Desktop Navigation Links — Strictly Attendee Oriented */}
-          <div className="hidden md:flex items-center space-x-6">
+          <div className="hidden lg:flex items-center space-x-3 xl:space-x-5 shrink-0">
             <button 
               onClick={() => handleNavClick('home')}
               className={`text-sm font-semibold transition-colors ${currentView === 'home' ? 'text-royal-crimson border-b-2 border-royal-crimson pb-1' : 'text-stone-700 hover:text-royal-crimson'}`}
@@ -130,7 +131,7 @@ export default function AttendeeNavbar({
               <Ticket className="w-4 h-4 text-royal-crimson" />
               <span>My Passes</span>
               {passCount > 0 && (
-                <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-black bg-royal-crimson text-white">
+                <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-royal-crimson text-white">
                   {passCount}
                 </span>
               )}
@@ -146,7 +147,7 @@ export default function AttendeeNavbar({
           </div>
 
           {/* Action CTAs & Account Dropdown */}
-          <div className="hidden sm:flex items-center gap-3">
+          <div className="hidden sm:flex items-center gap-2.5 shrink-0">
             
             {/* User Account Capsule */}
             <div className="relative" ref={menuRef}>
@@ -170,13 +171,11 @@ export default function AttendeeNavbar({
                 </div>
 
                 {/* Name & Role Pill */}
-                <div className="text-left">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-bold text-stone-800 max-w-[100px] truncate leading-tight">
-                      {getDisplayName()}
-                    </span>
-                  </div>
-                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-bold uppercase tracking-wider bg-amber-100/80 text-amber-800 border border-amber-200">
+                <div className="text-left flex flex-col justify-center">
+                  <span className="text-xs font-bold text-stone-800 max-w-[110px] truncate leading-tight block">
+                    {getDisplayName()}
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-200 leading-none mt-1">
                     <Ticket className="w-2.5 h-2.5 text-amber-600" />
                     <span>Attendee</span>
                   </span>
@@ -290,7 +289,7 @@ export default function AttendeeNavbar({
           </div>
 
           {/* Mobile Menu Button */}
-          <div className="md:hidden flex items-center gap-2">
+          <div className="lg:hidden flex items-center gap-2">
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className="p-2 rounded-xl bg-amber-50 text-stone-700 hover:text-royal-crimson"
@@ -303,7 +302,7 @@ export default function AttendeeNavbar({
 
         {/* Mobile Navigation Drawer */}
         {isMobileMenuOpen && (
-          <div className="md:hidden py-4 border-t border-amber-100 space-y-2 animate-in fade-in slide-in-from-top-2">
+          <div className="lg:hidden py-4 border-t border-amber-100 space-y-2 animate-in fade-in slide-in-from-top-2">
             <div className="px-3 py-2 bg-amber-50/70 rounded-xl mb-3 flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-amber-600 text-white flex items-center justify-center font-bold text-xs">
                 {getUserInitial()}
@@ -374,6 +373,7 @@ export default function AttendeeNavbar({
         )}
 
       </div>
+      <ToranGarland className="opacity-85 -mt-0.5" />
     </nav>
   );
 }

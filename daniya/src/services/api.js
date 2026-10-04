@@ -1,10 +1,9 @@
 import { auth } from '../firebase';
+import { API_BASE_URL } from '../config/apiConfig.js';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
-/** Public frontend URL for pass/receipt links (production: set VITE_PUBLIC_APP_URL). */
+/** Public frontend URL for pass/receipt links (production: set VITE_PUBLIC_APP_URL or VITE_PUBLIC_TICKET_BASE_URL). */
 export function getPublicAppUrl() {
-  const configured = import.meta.env.VITE_PUBLIC_APP_URL;
+  const configured = import.meta.env.VITE_PUBLIC_APP_URL || import.meta.env.VITE_PUBLIC_TICKET_BASE_URL;
   if (configured && String(configured).trim()) {
     return String(configured).trim().replace(/\/$/, '');
   }
@@ -61,6 +60,9 @@ async function request(endpoint, options = {}) {
   }
 
   const url = `${API_BASE_URL}${endpoint}`;
+  const method = options.method || 'GET';
+  console.log(`%c[API 🚀] ${method} ${endpoint}`, 'color: #3b82f6; font-weight: bold;');
+
   try {
     const res = await fetch(url, {
       ...options,
@@ -75,12 +77,15 @@ async function request(endpoint, options = {}) {
       } catch {
         // use status text
       }
+      console.error(`%c[API 🔴 ${res.status}] ${method} ${endpoint}: ${errDetail}`, 'color: #ef4444; font-weight: bold;');
       const error = new Error(errDetail);
       error.status = res.status;
       throw error;
     }
 
-    return await res.json();
+    const data = await res.json();
+    console.log(`%c[API 🟢 ${res.status}] ${method} ${endpoint}`, 'color: #10b981; font-weight: bold;', data);
+    return data;
   } catch (err) {
     throw err;
   }

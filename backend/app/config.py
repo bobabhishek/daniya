@@ -17,16 +17,18 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
 
     # Security & CORS & Public Deployment URLs
-    ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
+    ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:3000,http://127.0.0.1:3000,http://localhost:4173,http://127.0.0.1:4173"
     ADMIN_EMAIL: str = "teamredhawkz@gmail.com"
     PUBLIC_APP_URL: str = "http://localhost:5173"  # Production: https://YOUR-DEPLOYED-DOMAIN
 
     # Firebase Admin Settings
     FIREBASE_PROJECT_ID: str = "dhandiya-hawkz"
     FIREBASE_CREDENTIALS_PATH: str = ""  # Path to serviceAccountKey.json if present
-    USE_EMULATOR_OR_MEMORY: bool = True  # Graceful fallback when serviceAccountKey is not mounted
+    FIREBASE_CREDENTIALS_JSON: str = ""  # Raw or base64-encoded service account JSON
+    FIREBASE_STORAGE_BUCKET: str = "dhandiya-hawkz.firebasestorage.app"
+    USE_EMULATOR_OR_MEMORY: bool = True  # Fallback only in development/testing
 
-    # Local Receipt Storage Settings
+    # Receipt Storage Settings
     RECEIPTS_DIR: str = "receipts"
 
     # Business & Pricing Rules

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Check, Users, FileCheck, CreditCard, Sparkles } from 'lucide-react';
+import { DandiyaSticksIcon, DiyaIcon } from '../common/IndianFestiveMotifs';
 
 const STEPS = [
   { id: 1, title: 'PARTICIPANTS', subtitle: 'Add attendees', icon: Users },
@@ -34,8 +35,8 @@ export default function ProgressIndicator({ currentStep }) {
                   isCompleted 
                     ? 'bg-emerald-600 text-white shadow-emerald-200' 
                     : isActive 
-                    ? 'bg-gradient-to-br from-red-600 to-amber-600 text-white ring-4 ring-amber-200/80 shadow-md scale-110' 
-                    : 'bg-white text-stone-400 border-2 border-stone-200'
+                    ? 'bg-gradient-to-br from-red-700 via-rose-600 to-amber-600 text-white ring-4 ring-amber-400/90 shadow-lg scale-110' 
+                    : 'bg-white text-stone-400 border-2 border-amber-200/70 shadow-2xs'
                 }`}
               >
                 {isCompleted ? (
@@ -47,11 +48,11 @@ export default function ProgressIndicator({ currentStep }) {
 
               <div className="mt-2 text-center">
                 <span className={`block text-[11px] font-extrabold tracking-wider ${
-                  isActive ? 'text-royal-crimson' : isCompleted ? 'text-stone-800' : 'text-stone-400'
+                  isActive ? 'text-royal-crimson font-festive text-xs' : isCompleted ? 'text-stone-800' : 'text-stone-400'
                 }`}>
                   0{step.id} {step.title}
                 </span>
-                <span className="hidden sm:block text-[10px] text-stone-400 font-medium">
+                <span className="hidden sm:block text-[10px] text-stone-500 font-medium">
                   {step.subtitle}
                 </span>
               </div>

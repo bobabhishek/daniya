@@ -24,10 +24,19 @@ class ExcelExportService:
     HEADERS = [
         "Registration ID",
         "Date/Time",
+        "Booked By",
         "Participant(s)",
+        "Attendee Details (Name, Age, DOB, ID Proof, Ticket ID)",
         "Count",
+        "Under 20",
+        "Above 20",
         "Amount",
+        "Entered Amount",
+        "Verified Amount",
         "Payment",
+        "Verification",
+        "UPI Ref / UTR",
+        "Confidence",
         "Payment Screenshot",
         "Ticket Link(s)",
         "View Receipt"
@@ -46,7 +55,7 @@ class ExcelExportService:
         """
         Builds the Master Excel spreadsheet containing all registration rows.
         For verified registrations with stored receipts, thumbnail images are
-        physically embedded into Column G (Payment Screenshot).
+        physically embedded into the Payment Screenshot column.
         Configurable public domain is used for ticket and receipt links.
         """
         app_url = (base_url or getattr(settings, "PUBLIC_APP_URL", "http://localhost:5173")).rstrip("/")
@@ -76,7 +85,7 @@ class ExcelExportService:
 
         # 1. Write Header Row
         ws.append(cls.HEADERS)
-        ws.row_dimensions[1].height = 28
+        ws.row_dimensions[1].height = 30
 
         for col_idx, header_title in enumerate(cls.HEADERS, start=1):
             cell = ws.cell(row=1, column=col_idx)
@@ -88,16 +97,46 @@ class ExcelExportService:
         # Temporary in-memory buffers to keep image streams alive until wb.save completes
         image_streams = []
 
+        # Find column indices dynamically
+        screenshot_col_idx = cls.HEADERS.index("Payment Screenshot") + 1
+        screenshot_col_letter = get_column_letter(screenshot_col_idx)
+
         # 2. Populate Registration Rows
         current_row = 2
         for reg in registrations:
             reg_id = reg.get("registrationId", "")
             date_time = reg.get("dateTime") or reg.get("uploadedAt") or reg.get("createdAt") or ""
+            booked_by = f"{reg.get('userName', '')} ({reg.get('userEmail', '')})".strip(" ()") or "N/A"
             summary = reg.get("participantsSummary") or ""
+            
+            # Detailed breakdown of each participant
+            participants = reg.get("participants") or []
+            details_list = []
+            for p_idx, p in enumerate(participants, start=1):
+                p_name = p.get("name", "N/A")
+                p_age = p.get("age", "")
+                p_dob = p.get("dob", "")
+                p_id_type = p.get("idProofType", "Aadhaar Card")
+                p_ticket = p.get("ticketId") or "N/A"
+                details_list.append(f"{p_idx}. {p_name} | Age: {p_age} | DOB: {p_dob} | ID: {p_id_type} | Ticket: {p_ticket}")
+            attendee_details = "\n".join(details_list) if details_list else summary
+
             count = reg.get("count", reg.get("participantCount", 1))
+            under20 = reg.get("under20Count", 0)
+            above20 = reg.get("above20Count", 0)
             amount = reg.get("expectedAmount", reg.get("amount", reg.get("totalAmount", 0)))
+            entered_amount = f"₹{reg.get('enteredAmount')}" if reg.get("enteredAmount") is not None else "N/A"
+            verified_amount = f"₹{reg.get('ocrAmount', reg.get('verifiedAmount'))}" if (reg.get('ocrAmount') is not None or reg.get('verifiedAmount') is not None) else "N/A"
             payment_status = str(reg.get("paymentStatus", "PENDING")).upper()
             verification_status = str(reg.get("verificationStatus", "PENDING")).upper()
+            upi_ref = reg.get("upiRef") or reg.get("transactionRef") or reg.get("transactionId") or "N/A"
+            
+            ocr_conf = reg.get("ocrConfidence") if reg.get("ocrConfidence") is not None else reg.get("confidence")
+            if ocr_conf is not None:
+                confidence_str = f"{int(ocr_conf * 100)}%" if isinstance(ocr_conf, float) and ocr_conf <= 1.0 else f"{ocr_conf}%"
+            else:
+                confidence_str = "N/A"
+
             ticket_ids = reg.get("ticketIds", [])
             if ticket_ids and len(ticket_ids) == 1:
                 ticket_link = f"{app_url}/#/passes?ticket={ticket_ids[0]}"
@@ -105,69 +144,70 @@ class ExcelExportService:
                 ticket_link = f"{app_url}/#/passes?reg={reg_id}"
             receipt_link = f"{app_url}/#/admin?receipt={reg_id}" if (verification_status == "VERIFIED" or payment_status == "PAID") else "N/A"
 
-            # Base cell values
+            # Base cell values matching HEADERS
             row_data = [
                 reg_id,
                 date_time,
+                booked_by,
                 summary,
+                attendee_details,
                 count,
+                under20,
+                above20,
                 f"₹{amount}",
+                entered_amount,
+                verified_amount,
                 payment_status,
-                "",  # Column G: Payment Screenshot placeholder
+                verification_status,
+                upi_ref,
+                confidence_str,
+                "",  # Payment Screenshot placeholder (image is anchored here)
                 ticket_link,
                 receipt_link
             ]
             ws.append(row_data)
 
             # Style each cell in this row
-            c_id = ws.cell(row=current_row, column=1)
-            c_id.alignment = center_align
-            c_id.font = bold_font
-            c_id.border = cell_border
+            for col_i in range(1, len(cls.HEADERS) + 1):
+                cell = ws.cell(row=current_row, column=col_i)
+                cell.border = cell_border
+                cell.font = regular_font
+                cell.alignment = center_align
 
-            c_date = ws.cell(row=current_row, column=2)
-            c_date.alignment = center_align
-            c_date.font = regular_font
-            c_date.border = cell_border
+            # Specific column styling
+            ws.cell(row=current_row, column=1).font = bold_font  # Reg ID
+            ws.cell(row=current_row, column=3).alignment = left_align  # Booked by
+            ws.cell(row=current_row, column=4).alignment = left_align  # Summary
+            ws.cell(row=current_row, column=5).alignment = left_align  # Details
+            ws.cell(row=current_row, column=9).font = bold_font  # Amount
+            ws.cell(row=current_row, column=9).alignment = right_align
 
-            c_summary = ws.cell(row=current_row, column=3)
-            c_summary.alignment = left_align
-            c_summary.font = regular_font
-            c_summary.border = cell_border
-
-            c_count = ws.cell(row=current_row, column=4)
-            c_count.alignment = center_align
-            c_count.font = regular_font
-            c_count.border = cell_border
-
-            c_amt = ws.cell(row=current_row, column=5)
-            c_amt.alignment = right_align
-            c_amt.font = bold_font
-            c_amt.border = cell_border
-
-            c_pay = ws.cell(row=current_row, column=6)
-            c_pay.alignment = center_align
+            # Payment Status Color
+            c_pay = ws.cell(row=current_row, column=12)
             if payment_status == "PAID":
                 c_pay.font = paid_font
             elif payment_status == "FAILED":
                 c_pay.font = failed_font
             else:
                 c_pay.font = pending_font
-            c_pay.border = cell_border
 
-            c_shot = ws.cell(row=current_row, column=7)
-            c_shot.alignment = center_align
-            c_shot.border = cell_border
+            # Verification Status Color
+            c_ver = ws.cell(row=current_row, column=13)
+            if verification_status == "VERIFIED":
+                c_ver.font = paid_font
+            elif verification_status == "FAILED" or verification_status == "MISMATCH":
+                c_ver.font = failed_font
+            else:
+                c_ver.font = pending_font
 
-            c_tlink = ws.cell(row=current_row, column=8)
+            # Links styling
+            c_tlink = ws.cell(row=current_row, column=17)
             c_tlink.alignment = left_align
             c_tlink.font = link_font
-            c_tlink.border = cell_border
 
-            c_rlink = ws.cell(row=current_row, column=9)
+            c_rlink = ws.cell(row=current_row, column=18)
             c_rlink.alignment = left_align
             c_rlink.font = link_font if receipt_link != "N/A" else regular_font
-            c_rlink.border = cell_border
 
             # 3. Check for Verified Payment Screenshot & Physically Embed Image
             has_embedded_image = False
@@ -199,8 +239,8 @@ class ExcelExportService:
                                 openpyxl_img.width = thumb_img.width
                                 openpyxl_img.height = thumb_img.height
 
-                                # Anchor image inside Column G for this row
-                                cell_coord = f"G{current_row}"
+                                # Anchor image inside Payment Screenshot column for this row
+                                cell_coord = f"{screenshot_col_letter}{current_row}"
                                 ws.add_image(openpyxl_img, cell_coord)
 
                                 # Set row height based on thumbnail height (approx 1 pt = 1.33 px)
@@ -217,15 +257,24 @@ class ExcelExportService:
 
         # 4. Set Fixed Column Widths (optimized for readability and embedded images)
         column_widths = {
-            "A": 18,  # Registration ID
-            "B": 22,  # Date/Time
-            "C": 35,  # Participant(s)
-            "D": 10,  # Count
-            "E": 14,  # Amount
-            "F": 15,  # Payment
-            "G": 36,  # Payment Screenshot (fits ~220px image width comfortably)
-            "H": 34,  # Ticket Link(s)
-            "I": 30   # View Receipt
+            "A": 16,  # Registration ID
+            "B": 20,  # Date/Time
+            "C": 26,  # Booked By
+            "D": 26,  # Participant(s)
+            "E": 44,  # Attendee Details
+            "F": 10,  # Count
+            "G": 10,  # Under 20
+            "H": 10,  # Above 20
+            "I": 13,  # Amount
+            "J": 14,  # Entered Amount
+            "K": 14,  # Verified Amount
+            "L": 14,  # Payment
+            "M": 14,  # Verification
+            "N": 20,  # UPI Ref / UTR
+            "O": 12,  # Confidence
+            "P": 36,  # Payment Screenshot (fits ~220px image width comfortably)
+            "Q": 34,  # Ticket Link(s)
+            "R": 30   # View Receipt
         }
         for col_letter, width in column_widths.items():
             ws.column_dimensions[col_letter].width = width

@@ -154,7 +154,7 @@ export default function RegistrationRecordModal({ record, onClose, onOpenTickets
                             </button>
                           ) : (
                             <span className="text-[11px] text-stone-400 italic">
-                              ID Proof: Standard Mock Check
+                              ID Proof: Not provided
                             </span>
                           )}
                         </div>

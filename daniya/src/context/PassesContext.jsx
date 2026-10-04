@@ -5,28 +5,65 @@ import { mergeRegistrationsWithTickets } from '../utils/mergePassRecords';
 
 const PassesContext = createContext(null);
 
+const PASSES_STORAGE_PREFIX = 'daniya_attendee_passes_';
+
+function getStoredPasses(uid, email) {
+  if (typeof window === 'undefined' || !window.localStorage) return [];
+  try {
+    const keys = [];
+    if (uid) keys.push(`${PASSES_STORAGE_PREFIX}${uid}`);
+    if (email) keys.push(`${PASSES_STORAGE_PREFIX}${email.trim().toLowerCase()}`);
+    keys.push(`${PASSES_STORAGE_PREFIX}global`);
+
+    for (const k of keys) {
+      const raw = window.localStorage.getItem(k);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Error reading stored passes from localStorage:', e);
+  }
+  return [];
+}
+
+function saveStoredPasses(uid, email, passesList) {
+  if (typeof window === 'undefined' || !window.localStorage || !Array.isArray(passesList)) return;
+  try {
+    const jsonStr = JSON.stringify(passesList);
+    if (uid) window.localStorage.setItem(`${PASSES_STORAGE_PREFIX}${uid}`, jsonStr);
+    if (email) window.localStorage.setItem(`${PASSES_STORAGE_PREFIX}${email.trim().toLowerCase()}`, jsonStr);
+    window.localStorage.setItem(`${PASSES_STORAGE_PREFIX}global`, jsonStr);
+  } catch (e) {
+    console.warn('Error persisting passes to localStorage:', e);
+  }
+}
+
 export function PassesProvider({ children }) {
   const { user, loading: authLoading, isAuthenticated } = useAuth();
-  const [passes, setPasses] = useState([]);
+  const [passes, setPasses] = useState(() => getStoredPasses(user?.uid, user?.email));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const loadedUidRef = useRef(null);
   const inFlightFetchRef = useRef(null);
 
-  // Authoritative fetch from backend with in-flight deduplication
+  // Authoritative fetch from backend with in-flight deduplication and local persistence
   const fetchPasses = useCallback(async (forceFresh = false) => {
-    if (!user?.uid) {
+    if (!user) {
       setPasses([]);
       loadedUidRef.current = null;
       setLoading(false);
       return [];
     }
 
-    if (!forceFresh && loadedUidRef.current === user.uid) {
+    if (!forceFresh && loadedUidRef.current === (user.uid || user.email)) {
       return null;
     }
 
-    // Return existing in-flight promise if one is already running to avoid duplicate requests
+    // Return existing in-flight promise if one is already running
     if (inFlightFetchRef.current) {
       return inFlightFetchRef.current;
     }
@@ -47,23 +84,43 @@ export function PassesProvider({ children }) {
         );
 
         setPasses((prev) => {
-          const serverMap = new Map(merged.map((r) => [r.registrationId, r]));
-          const combined = [...merged];
-          // Preserve any locally verified registrations not yet indexed by server
-          for (const existing of prev) {
-            if (existing && !serverMap.has(existing.registrationId)) {
-              combined.unshift(existing);
+          const combinedMap = new Map();
+          
+          // 1. First populate with server records
+          merged.forEach((r) => combinedMap.set(r.registrationId, r));
+          
+          // 2. Preserve any in-memory passes already held
+          prev.forEach((r) => {
+            if (!combinedMap.has(r.registrationId)) {
+              combinedMap.set(r.registrationId, r);
             }
-          }
-          return combined;
+          });
+
+          // 3. Fallback to localStorage passes if server has not indexed them yet
+          const cached = getStoredPasses(user.uid, user.email);
+          cached.forEach((r) => {
+            if (!combinedMap.has(r.registrationId)) {
+              combinedMap.set(r.registrationId, r);
+            }
+          });
+
+          const finalPasses = Array.from(combinedMap.values());
+          saveStoredPasses(user.uid, user.email, finalPasses);
+          return finalPasses;
         });
 
-        loadedUidRef.current = user.uid;
+        loadedUidRef.current = user.uid || user.email;
         return merged;
       } catch (err) {
         console.warn('Failed to load user passes from server:', err);
-        setError(err.message || 'Could not retrieve tickets from server.');
-        return [];
+        // Fall back to stored passes on network error
+        const cached = getStoredPasses(user?.uid, user?.email);
+        if (cached.length > 0) {
+          setPasses(cached);
+        } else {
+          setError(err.message || 'Could not retrieve tickets from server.');
+        }
+        return cached;
       } finally {
         setLoading(false);
         inFlightFetchRef.current = null;
@@ -72,9 +129,9 @@ export function PassesProvider({ children }) {
 
     inFlightFetchRef.current = fetchPromise;
     return fetchPromise;
-  }, [user?.uid]);
+  }, [user?.uid, user?.email]);
 
-  // Sync with auth changes: clear on logout, fetch once when user UID changes
+  // Sync with auth changes: hydrate from cache immediately, then fetch
   useEffect(() => {
     if (authLoading) return;
 
@@ -83,12 +140,19 @@ export function PassesProvider({ children }) {
       loadedUidRef.current = null;
       setLoading(false);
       setError(null);
-    } else if (loadedUidRef.current !== user.uid) {
-      fetchPasses(true);
+    } else {
+      // Instant cache hydration
+      const cached = getStoredPasses(user.uid, user.email);
+      if (cached.length > 0) {
+        setPasses((prev) => (prev.length === 0 ? cached : prev));
+      }
+      if (loadedUidRef.current !== (user.uid || user.email)) {
+        fetchPasses(true);
+      }
     }
-  }, [user?.uid, authLoading, isAuthenticated, fetchPasses]);
+  }, [user?.uid, user?.email, authLoading, isAuthenticated, fetchPasses]);
 
-  // Explicitly clear passes on logout
+  // Clear passes on logout
   const clearPasses = useCallback(() => {
     setPasses([]);
     loadedUidRef.current = null;
@@ -97,23 +161,22 @@ export function PassesProvider({ children }) {
     setLoading(false);
   }, []);
 
-  // Append freshly verified registration immediately so My Passes shows it with zero latency
+  // Append freshly verified registration immediately and persist to local storage
   const addVerifiedRegistration = useCallback((newRegistration) => {
     if (!newRegistration) return;
     const normalized = mergeRegistrationsWithTickets([newRegistration], [])[0] || newRegistration;
-    if (user?.uid) {
-      loadedUidRef.current = user.uid;
+    if (user?.uid || user?.email) {
+      loadedUidRef.current = user.uid || user.email;
     }
     setPasses((prev) => {
       const exists = prev.some((r) => r.registrationId === normalized.registrationId);
-      if (exists) {
-        return prev.map((r) =>
-          r.registrationId === normalized.registrationId ? { ...r, ...normalized } : r
-        );
-      }
-      return [normalized, ...prev];
+      const updated = exists
+        ? prev.map((r) => (r.registrationId === normalized.registrationId ? { ...r, ...normalized } : r))
+        : [normalized, ...prev];
+      saveStoredPasses(user?.uid, user?.email, updated);
+      return updated;
     });
-  }, [user?.uid]);
+  }, [user?.uid, user?.email]);
 
   const refreshPasses = useCallback(() => fetchPasses(true), [fetchPasses]);
 

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { EVENT_CONFIG } from '../../config/eventConfig';
 import api from '../../services/api';
+import { ToranGarland, DandiyaSticksIcon, DiyaIcon } from '../common/IndianFestiveMotifs';
 
 export default function StepPayment({ 
   pricingBreakdown, 
@@ -180,9 +181,8 @@ export default function StepPayment({
       
       {/* Header */}
       <div className="text-center max-w-xl mx-auto mb-8">
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-xs font-bold border border-emerald-300 mb-2">
-          <ShieldCheck className="w-4 h-4 text-emerald-600" />
-          <span>Official Admin QR Payment Only</span>
+        <div className="inline-flex items-center justify-center p-2 rounded-2xl bg-amber-100/70 border border-amber-300/80 mb-2 shadow-2xs">
+          <DandiyaSticksIcon className="w-5 h-5 text-amber-700" />
         </div>
         <h2 className="text-2xl sm:text-3xl font-extrabold text-stone-900 font-festive">
           SCAN QR TO PAY
@@ -192,10 +192,14 @@ export default function StepPayment({
         </p>
       </div>
 
-      <div className="bg-white rounded-3xl border border-amber-200 shadow-festive overflow-hidden">
+      <div className="relative bg-white rounded-3xl border border-amber-300 shadow-festive overflow-hidden">
+        <div className="filigree-corner-tl" />
+        <div className="filigree-corner-tr" />
+        <div className="filigree-corner-bl" />
+        <div className="filigree-corner-br" />
         
         {/* Order Summary Ribbon */}
-        <div className="bg-gradient-to-r from-amber-50 via-red-50/50 to-amber-50 p-6 border-b border-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="bg-gradient-to-r from-amber-50 via-red-50/50 to-amber-50 p-6 border-b border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <span className="text-xs uppercase font-extrabold text-stone-500">Order Summary</span>
             <p className="text-sm font-bold text-stone-900">
@@ -219,6 +223,8 @@ export default function StepPayment({
           </div>
         </div>
 
+        <ToranGarland className="opacity-80 -mt-0.5 shadow-2xs" />
+
         {/* Primary Payment Step Body */}
         <div className="p-6 sm:p-8">
           
@@ -235,113 +241,219 @@ export default function StepPayment({
             </span>
           </div>
 
-          {/* Centered Admin QR Box */}
-          <div className="bg-stone-50/80 rounded-3xl border-2 border-amber-300 p-6 sm:p-8 flex flex-col items-center text-center shadow-inner">
-            
-            {/* Payee Info Header */}
-            <div className="mb-4">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-extrabold mb-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-                <span>OFFICIAL ORGANIZER ACCOUNT</span>
+          {/* =========================================================================
+              1. HIGHLIGHTED PAYMENT GUIDELINES & VERIFICATION RULES (UP / TOP)
+              ========================================================================= */}
+          <div className="mb-8 p-5 sm:p-7 rounded-3xl bg-gradient-to-br from-amber-500/10 via-orange-500/5 to-amber-500/15 border-2 border-amber-400 shadow-md relative overflow-hidden">
+            {/* Corner Decorative Accent */}
+            <div className="absolute top-0 right-0 w-28 h-28 bg-gradient-to-bl from-amber-300/30 to-transparent rounded-bl-full pointer-events-none" />
+
+            <div className="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-amber-200/90">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-xs">
+                  <Smartphone className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-extrabold uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">
+                      MANDATORY INSTRUCTIONS
+                    </span>
+                    <span className="text-[10px] font-extrabold uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                      OFFICIAL PROCESS
+                    </span>
+                  </div>
+                  <h4 className="font-festive font-black text-lg sm:text-xl text-stone-900 tracking-wide mt-1">
+                    HOW TO COMPLETE PAYMENT &amp; SECURE PASSES
+                  </h4>
+                </div>
               </div>
-              <h3 className="text-2xl font-black text-stone-900 tracking-wide font-festive">
-                {payeeName}
-              </h3>
-              <p className="text-xs text-stone-500 font-semibold">
-                {EVENT_CONFIG.EVENT_ORGANIZER} (Red Hawks)
-              </p>
             </div>
 
-            {/* Official QR Code Image */}
-            <div className="relative p-3 bg-white rounded-3xl border-4 border-[#D4AF37] shadow-xl group">
-              <img
-                src={qrImage}
-                alt={`Official UPI QR Code for ${payeeName}`}
-                className="w-64 h-64 sm:w-72 sm:h-72 object-contain rounded-2xl mx-auto"
-              />
-              
-              {/* Floating Amount Tag */}
-              <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 px-4 py-1.5 bg-royal-crimson text-white rounded-full font-black text-sm shadow-md border-2 border-amber-300 whitespace-nowrap">
-                PAY EXACT AMOUNT: ₹{expectedAmount}
+            {/* HIGH-VISIBILITY VERIFICATION ALERT CALLOUT */}
+            <div className="mb-5 p-4 rounded-2xl bg-gradient-to-r from-red-50 via-amber-50 to-orange-50 border-2 border-royal-crimson/40 shadow-xs flex items-start gap-3">
+              <div className="p-2 rounded-xl bg-royal-crimson text-white shrink-0 mt-0.5 shadow-xs">
+                <AlertTriangle className="w-4 h-4 text-amber-200" />
+              </div>
+              <div className="text-xs space-y-1">
+                <p className="font-black text-royal-crimson text-xs sm:text-sm uppercase tracking-wide">
+                  CRITICAL: PAYMENT SCREENSHOT UPLOAD REQUIRED FOR VERIFICATION
+                </p>
+                <p className="text-stone-700 font-medium leading-relaxed">
+                  After completing the transfer, you <strong className="text-stone-950 underline decoration-royal-crimson font-black">MUST upload your payment screenshot</strong> below. The receipt must clearly show the <strong className="text-stone-950 font-bold">Transaction ID / UTR</strong> and the exact paid amount. Entry passes are issued <strong className="text-stone-950 font-bold">only after receipt verification</strong>.
+                </p>
+              </div>
+            </div>
+
+            {/* 4 HIGHLIGHTED STEPS GRID */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4 text-xs sm:text-sm">
+              {/* Step 1 */}
+              <div className="p-3.5 sm:p-4 rounded-2xl bg-white/90 border border-amber-200 shadow-2xs hover:border-amber-300 transition-all">
+                <div className="flex items-start gap-3">
+                  <span className="w-7 h-7 rounded-xl bg-amber-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0 shadow-xs">
+                    1
+                  </span>
+                  <div>
+                    <p className="font-extrabold text-stone-900 text-xs sm:text-sm">Open Any UPI App</p>
+                    <p className="text-stone-600 text-xs mt-0.5 leading-relaxed">
+                      Launch Google Pay, PhonePe, Paytm, BHIM, Cred, or your mobile banking app.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 2 */}
+              <div className="p-3.5 sm:p-4 rounded-2xl bg-white/90 border border-amber-200 shadow-2xs hover:border-amber-300 transition-all">
+                <div className="flex items-start gap-3">
+                  <span className="w-7 h-7 rounded-xl bg-amber-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0 shadow-xs">
+                    2
+                  </span>
+                  <div>
+                    <p className="font-extrabold text-stone-900 text-xs sm:text-sm">
+                      Scan QR &amp; Pay <span className="text-royal-crimson font-black">₹{expectedAmount}</span>
+                    </p>
+                    <p className="text-stone-600 text-xs mt-0.5 leading-relaxed">
+                      Scan the official QR below. Verify payee is <strong className="text-stone-900">{payeeName}</strong>. Pay exact payable amount of ₹{expectedAmount}.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 3 */}
+              <div className="p-3.5 sm:p-4 rounded-2xl bg-white/90 border border-amber-200 shadow-2xs hover:border-amber-300 transition-all">
+                <div className="flex items-start gap-3">
+                  <span className="w-7 h-7 rounded-xl bg-amber-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0 shadow-xs">
+                    3
+                  </span>
+                  <div>
+                    <p className="font-extrabold text-stone-900 text-xs sm:text-sm">Take Screenshot of Receipt</p>
+                    <p className="text-stone-600 text-xs mt-0.5 leading-relaxed">
+                      Save a screenshot of the successful payment showing the <strong className="text-stone-900">UTR / Transaction ID</strong> and amount.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 4 */}
+              <div className="p-3.5 sm:p-4 rounded-2xl bg-white/90 border-2 border-royal-crimson/40 bg-gradient-to-br from-white to-red-50/50 shadow-2xs hover:border-royal-crimson transition-all">
+                <div className="flex items-start gap-3">
+                  <span className="w-7 h-7 rounded-xl bg-royal-crimson text-white font-extrabold text-xs flex items-center justify-center shrink-0 shadow-xs">
+                    4
+                  </span>
+                  <div>
+                    <p className="font-extrabold text-royal-crimson text-xs sm:text-sm">Upload Screenshot Below</p>
+                    <p className="text-stone-600 text-xs mt-0.5 leading-relaxed">
+                      Click <strong className="text-royal-crimson">"PAYMENT DONE"</strong> below to upload your screenshot for automated pass verification.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
 
             {/* Verified Payee Details & Copy Action */}
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-2 text-xs">
-              <span className="text-stone-500">Payee Name:</span>
-              <span className="font-extrabold text-stone-900">{payeeName}</span>
+            <div className="mt-4 pt-3.5 border-t border-amber-200/80 flex flex-wrap items-center justify-between gap-2 bg-white/80 p-3 rounded-2xl border border-amber-200/60 shadow-2xs">
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-stone-500 font-medium">Official Payee:</span>
+                <strong className="text-stone-900 font-bold">{payeeName}</strong>
+                <span className="text-[11px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md font-semibold">
+                  (Red Hawks Organizer)
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={handleCopyPayee}
-                className="px-2.5 py-1 rounded-lg bg-white border border-stone-200 hover:bg-stone-100 text-stone-700 font-semibold text-[11px] flex items-center gap-1 transition-colors"
+                className="px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs flex items-center gap-1.5 transition-colors shadow-2xs"
                 title="Copy Payee Name"
               >
                 {copiedPayee ? (
                   <>
-                    <Check className="w-3 h-3 text-emerald-600" />
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
                     <span className="text-emerald-700">Copied</span>
                   </>
                 ) : (
                   <>
-                    <Copy className="w-3 h-3 text-stone-400" />
-                    <span>Copy</span>
+                    <Copy className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Copy Payee Name</span>
                   </>
                 )}
               </button>
             </div>
+          </div>
 
-            {/* Supported UPI Apps Pills */}
-            <div className="mt-4 pt-4 border-t border-stone-200 w-full max-w-md">
-              <p className="text-[11px] uppercase font-bold text-stone-400 tracking-wider mb-2">
-                Works with Any UPI App
-              </p>
-              <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-bold text-stone-700">
-                {EVENT_CONFIG.PAYMENT.ACCEPTED_APPS.map((app) => (
-                  <span 
-                    key={app} 
-                    className="px-3 py-1 rounded-full bg-white border border-stone-200 text-stone-700 shadow-2xs text-[11px]"
-                  >
-                    {app}
-                  </span>
-                ))}
+          {/* =========================================================================
+              2. OFFICIAL UPI QR CODE DISPLAY (DOWN / BELOW GUIDELINES)
+              ========================================================================= */}
+          <div className="max-w-md mx-auto mb-8">
+            <div className="w-full bg-stone-50/90 rounded-3xl border-2 border-amber-300 p-6 flex flex-col items-center text-center shadow-inner relative">
+              
+              {/* Payee Info Header */}
+              <div className="mb-3">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-[11px] font-extrabold mb-1">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-700" />
+                  <span>OFFICIAL ORGANIZER ACCOUNT</span>
+                </div>
+                <h3 className="text-xl sm:text-2xl font-black text-stone-900 tracking-wide font-festive">
+                  {payeeName}
+                </h3>
+                <p className="text-[11px] text-stone-500 font-semibold">
+                  {EVENT_CONFIG.EVENT_ORGANIZER} (Red Hawks)
+                </p>
               </div>
+
+              {/* Official QR Code Image with Rich Gold Border */}
+              <div className="relative p-2.5 bg-white rounded-2xl border-4 border-[#D4AF37] shadow-lg mb-3">
+                <img
+                  src={qrImage}
+                  alt={`Official UPI QR Code for ${payeeName}`}
+                  className="w-56 h-56 sm:w-64 sm:h-64 object-contain rounded-xl mx-auto"
+                />
+                
+                {/* Floating Amount Tag */}
+                <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-royal-crimson text-white rounded-full font-black text-xs sm:text-sm shadow-md border-2 border-amber-300 whitespace-nowrap">
+                  PAY EXACT AMOUNT: ₹{expectedAmount}
+                </div>
+              </div>
+
+              {/* Supported Apps */}
+              <div className="mt-4 pt-3 border-t border-stone-200/80 w-full">
+                <p className="text-[10px] uppercase font-bold text-stone-400 tracking-wider mb-2">
+                  Works with Any UPI App
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-1.5 text-xs font-bold text-stone-700">
+                  {EVENT_CONFIG.PAYMENT.ACCEPTED_APPS.map((app) => (
+                    <span 
+                      key={app} 
+                      className="px-2.5 py-0.5 rounded-full bg-white border border-stone-200 text-stone-700 shadow-2xs text-[10px]"
+                    >
+                      {app}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
             </div>
-
           </div>
 
-          {/* Clean 4-Step Instructions */}
-          <div className="my-6 p-4 rounded-2xl bg-amber-50/60 border border-amber-200 text-xs text-amber-950 space-y-2">
-            <h5 className="font-extrabold uppercase tracking-wider text-amber-900 flex items-center gap-1.5">
-              <Smartphone className="w-4 h-4 text-amber-700" />
-              <span>How to Complete Payment:</span>
-            </h5>
-            <ol className="list-decimal list-inside space-y-1 text-stone-700 pl-1 leading-relaxed">
-              <li>Open <strong>Google Pay</strong>, <strong>PhonePe</strong>, <strong>Paytm</strong>, or any UPI app on your phone.</li>
-              <li>Scan the official QR code of <strong>{payeeName}</strong> above.</li>
-              <li>Enter the exact amount <strong>₹{expectedAmount}</strong> and complete payment.</li>
-              <li>Click the button below to confirm payment and upload your payment screenshot.</li>
-            </ol>
-          </div>
-
-          {/* First Stage CTA: "PAYMENT DONE" */}
-          {!showProofSection ? (
-            <div className="space-y-3">
+          {/* First Stage CTA: "PAYMENT DONE" (If proof section not open) */}
+          {!showProofSection && (
+            <div className="max-w-md mx-auto space-y-2 mb-4">
               <button
                 type="button"
                 onClick={handlePaymentDoneClick}
-                className="w-full py-4 rounded-2xl text-base font-extrabold text-white bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-700 hover:to-amber-700 shadow-festive hover:shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2.5 tracking-wide"
+                className="w-full py-4 px-6 rounded-2xl text-base font-extrabold text-white bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-700 hover:to-amber-700 shadow-festive hover:shadow-xl active:scale-[0.99] transition-all flex items-center justify-center gap-2.5 tracking-wide ring-2 ring-amber-300/60"
               >
                 <CheckCircle2 className="w-5 h-5 text-amber-200" />
-                <span>PAYMENT DONE</span>
+                <span>PAYMENT DONE — UPLOAD RECEIPT</span>
               </button>
               <p className="text-center text-xs text-stone-500">
                 Click after transferring ₹{expectedAmount} to upload your payment receipt for verification.
               </p>
             </div>
-          ) : (
-            /* =========================================================================
-               PAYMENT VERIFICATION PROOF SECTION
-               ========================================================================= */
+          )}
+
+          {/* =========================================================================
+              3. PAYMENT VERIFICATION PROOF SECTION
+              ========================================================================= */}
+          {showProofSection && (
             <div 
               ref={proofSectionRef}
               className="mt-8 pt-8 border-t-2 border-dashed border-amber-300 animate-in fade-in slide-in-from-top-4 duration-300"

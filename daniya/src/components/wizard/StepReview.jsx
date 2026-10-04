@@ -4,6 +4,7 @@ import { EVENT_CONFIG } from '../../config/eventConfig';
 import { getParticipantCategory } from '../../utils/pricing';
 import { formatToIndianDate } from '../../utils/indianDateUtils';
 import StudentDiscountNotice from '../common/StudentDiscountNotice';
+import { ToranGarland, DandiyaSticksIcon, DiyaIcon } from '../common/IndianFestiveMotifs';
 
 export default function StepReview({ participants, pricingBreakdown, onBack, onProceedToPayment, isSubmitting = false }) {
   return (
@@ -11,6 +12,9 @@ export default function StepReview({ participants, pricingBreakdown, onBack, onP
       
       {/* Step Heading */}
       <div className="text-center max-w-2xl mx-auto mb-8">
+        <div className="inline-flex items-center justify-center p-2 rounded-2xl bg-amber-100/70 border border-amber-300/80 mb-2.5 shadow-2xs">
+          <DandiyaSticksIcon className="w-5 h-5 text-amber-700" />
+        </div>
         <h2 className="text-2xl sm:text-3xl font-extrabold text-stone-900 font-festive">
           Review Your Registration
         </h2>
@@ -19,10 +23,14 @@ export default function StepReview({ participants, pricingBreakdown, onBack, onP
         </p>
       </div>
 
-      <div className="bg-white rounded-3xl border border-amber-200/90 shadow-festive overflow-hidden">
+      <div className="relative bg-white rounded-3xl border border-amber-300/90 shadow-festive overflow-hidden">
+        <div className="filigree-corner-tl" />
+        <div className="filigree-corner-tr" />
+        <div className="filigree-corner-bl" />
+        <div className="filigree-corner-br" />
         
         {/* Event Quick Header in Review */}
-        <div className="bg-gradient-to-r from-amber-50 via-red-50/40 to-amber-50 p-6 border-b border-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="bg-gradient-to-r from-amber-50 via-red-50/40 to-amber-50 p-6 border-b border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <span className="text-xs uppercase font-extrabold text-royal-crimson tracking-wider">
               {EVENT_CONFIG.EVENT_EDITION}
@@ -42,6 +50,7 @@ export default function StepReview({ participants, pricingBreakdown, onBack, onP
             </span>
           </div>
         </div>
+        <ToranGarland className="opacity-80 -mt-0.5 shadow-2xs" />
 
         {/* Participants Table */}
         <div className="p-6 sm:p-8">

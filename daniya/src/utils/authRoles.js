@@ -10,6 +10,7 @@
  */
 
 export const ADMIN_EMAIL = Object.freeze('teamredhawkz@gmail.com');
+import { API_BASE_URL } from '../config/apiConfig.js';
 
 export const ROLES = Object.freeze({
   ADMIN: 'ADMIN',
@@ -71,7 +72,6 @@ export async function verifyServerRole(token) {
     return roleCache.get(cacheKey);
   }
 
-  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 2500);
 

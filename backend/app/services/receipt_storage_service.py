@@ -9,7 +9,8 @@ logger = logging.getLogger("dandiya_backend.receipt_storage")
 
 class ReceiptStorageService:
     """
-    Dedicated local storage manager for verified event payment receipts.
+    Dedicated storage manager for verified event payment receipts.
+    Supports local filesystem caching and persistent Firebase Cloud Storage.
     
     Structure:
     receipts/
@@ -21,13 +22,34 @@ class ReceiptStorageService:
 
     @classmethod
     def get_base_dir(cls) -> str:
-        """Returns absolute path to the receipts directory."""
+        """Returns absolute path to the local receipts cache directory."""
         receipts_dir = settings.RECEIPTS_DIR or "receipts"
         if os.path.isabs(receipts_dir):
             return receipts_dir
         # Relative to backend root directory
         backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         return os.path.join(backend_dir, receipts_dir)
+
+    @classmethod
+    def get_firebase_bucket(cls):
+        """Returns initialized Firebase Storage Bucket if available."""
+        from ..firebase import _firebase_app, init_firebase
+        if not _firebase_app:
+            init_firebase()
+            from ..firebase import _firebase_app
+
+        if _firebase_app:
+            try:
+                from firebase_admin import storage
+                bucket_name = getattr(
+                    settings,
+                    'FIREBASE_STORAGE_BUCKET',
+                    f"{settings.FIREBASE_PROJECT_ID}.firebasestorage.app"
+                )
+                return storage.bucket(bucket_name)
+            except Exception as e:
+                logger.error(f"Failed to access Firebase Storage bucket: {e}")
+        return None
 
     @classmethod
     def save_verified_receipt(
@@ -37,12 +59,9 @@ class ReceiptStorageService:
         filename: str = "payment_receipt.jpg"
     ) -> str:
         """
-        Saves verified payment receipt image on disk.
-        Enforces:
-        1. Save actual uploaded screenshot.
-        2. Create registration directory.
-        3. Save the image.
-        4. Verify file exists on disk and is non-empty.
+        Saves verified payment receipt image.
+        1. Saves locally for immediate caching and local access.
+        2. In production, persistently uploads to Firebase Cloud Storage.
         Returns relative path format: receipts/{registrationId}/payment_receipt.jpg
         """
         if not image_bytes:
@@ -63,19 +82,37 @@ class ReceiptStorageService:
             except Exception:
                 pass
 
-        # Step 4: Verify the file exists on disk
         if not os.path.isfile(file_path) or os.path.getsize(file_path) == 0:
-            raise IOError(f"Verified receipt storage failed: {file_path} is missing or empty.")
+            raise IOError(f"Verified receipt local write failed: {file_path} is missing or empty.")
 
         rel_path = f"receipts/{registration_id}/{target_filename}"
-        logger.info(f"Verified payment receipt saved & verified locally: {rel_path} ({len(image_bytes)} bytes)")
+
+        # In production, enforce persistent Cloud Storage upload
+        if settings.ENVIRONMENT == "production":
+            bucket = cls.get_firebase_bucket()
+            if not bucket:
+                raise RuntimeError(
+                    "CRITICAL: Firebase Storage bucket is not available in production mode! "
+                    "Ephemeral local receipts will be lost on container restart. "
+                    "Ensure valid Firebase credentials and FIREBASE_STORAGE_BUCKET are configured."
+                )
+            try:
+                blob_name = f"receipts/{registration_id}/{target_filename}"
+                blob = bucket.blob(blob_name)
+                blob.upload_from_string(image_bytes, content_type="image/jpeg")
+                logger.info(f"Verified payment receipt persisted to Firebase Cloud Storage: gs://{bucket.name}/{blob_name}")
+            except Exception as e:
+                logger.critical(f"Failed to upload receipt to Firebase Cloud Storage in production: {e}")
+                raise RuntimeError(f"Cloud receipt persistence failed in production: {e}")
+
+        logger.info(f"Verified payment receipt saved: {rel_path} ({len(image_bytes)} bytes)")
         return rel_path
 
     @classmethod
     def get_receipt_path(cls, registration_id_or_path: str) -> Optional[str]:
         """
         Returns absolute file path to verified receipt.
-        Accepts registrationId (e.g. 'KD-000001') or relative path (e.g. 'receipts/KD-000001/payment_receipt.jpg').
+        If local file is absent (e.g. fresh container deploy), hydrates from Firebase Cloud Storage.
         """
         if not registration_id_or_path:
             return None
@@ -113,12 +150,27 @@ class ReceiptStorageService:
                 if fname.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
                     return os.path.join(reg_dir, fname)
 
+        # 5. Cloud Storage fallback: fetch from bucket and hydrate local cache
+        bucket = cls.get_firebase_bucket()
+        if bucket:
+            try:
+                blob_name = f"receipts/{clean_id}/payment_receipt.jpg"
+                blob = bucket.blob(blob_name)
+                if blob.exists():
+                    os.makedirs(reg_dir, exist_ok=True)
+                    blob.download_to_filename(candidate)
+                    if os.path.isfile(candidate) and os.path.getsize(candidate) > 0:
+                        logger.info(f"Hydrated receipt from Firebase Cloud Storage: {blob_name}")
+                        return candidate
+            except Exception as e:
+                logger.warning(f"Could not retrieve receipt from Cloud Storage for {clean_id}: {e}")
+
         return None
 
     @classmethod
     def get_receipt_bytes(cls, registration_id_or_path: str) -> Optional[Tuple[bytes, str]]:
         """
-        Reads verified receipt from disk.
+        Reads verified receipt bytes.
         Returns (image_bytes, media_type) or None if not found.
         """
         file_path = cls.get_receipt_path(registration_id_or_path)
@@ -138,10 +190,22 @@ class ReceiptStorageService:
 
     @classmethod
     def delete_receipt(cls, registration_id: str) -> bool:
-        """Removes the verified receipt directory for a registration."""
+        """Removes the verified receipt locally and from cloud storage."""
+        deleted = False
         reg_dir = os.path.join(cls.get_base_dir(), registration_id)
         if os.path.isdir(reg_dir):
             shutil.rmtree(reg_dir, ignore_errors=True)
-            logger.info(f"Deleted receipt directory for {registration_id}")
-            return True
-        return False
+            deleted = True
+
+        bucket = cls.get_firebase_bucket()
+        if bucket:
+            try:
+                blob_name = f"receipts/{registration_id}/payment_receipt.jpg"
+                blob = bucket.blob(blob_name)
+                if blob.exists():
+                    blob.delete()
+                    deleted = True
+            except Exception as e:
+                logger.warning(f"Could not delete receipt from Cloud Storage for {registration_id}: {e}")
+
+        return deleted

@@ -22,7 +22,6 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
   // Search, filter, and sort states
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentFilter, setPaymentFilter] = useState('ALL'); // 'ALL' | 'PAID' | 'PENDING' | 'FAILED'
-  const [categoryFilter, setCategoryFilter] = useState('ALL'); // 'ALL' | 'UNDER_20' | 'ABOVE_20'
   const [sortBy, setSortBy] = useState('NEWEST'); // 'NEWEST' | 'OLDEST' | 'AMOUNT_DESC' | 'AMOUNT_ASC'
 
   // Modal inspection states
@@ -77,31 +76,34 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
   }, [registrations]);
 
   // Dynamic calculations from current registrations
+  // Dynamic calculations from current registrations
   const stats = useMemo(() => {
     let totalRegs = registrations.length;
     let totalParticipants = 0;
-    let under20 = 0;
-    let above20 = 0;
     let revenue = 0;
     let paidCount = 0;
+    let pendingCount = 0;
+    let failedCount = 0;
 
     registrations.forEach(r => {
-      totalParticipants += r.count;
-      under20 += r.under20Count || 0;
-      above20 += r.above20Count || 0;
+      totalParticipants += (r.count || r.participants?.length || 1);
       if (r.paymentStatus === 'PAID') {
-        revenue += r.amount;
+        revenue += (r.expectedAmount || r.amount || 0);
         paidCount++;
+      } else if (r.paymentStatus === 'FAILED') {
+        failedCount++;
+      } else {
+        pendingCount++;
       }
     });
 
     return {
       totalRegs,
       totalParticipants,
-      under20,
-      above20,
       revenue,
-      paidCount
+      paidCount,
+      pendingCount,
+      failedCount
     };
   }, [registrations]);
 
@@ -111,46 +113,44 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
       .filter(item => {
         // Search match
         const matchesSearch = 
-          item.registrationId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          item.participantsSummary.toLowerCase().includes(searchTerm.toLowerCase());
+          !searchTerm ||
+          item.registrationId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          item.participantsSummary?.toLowerCase().includes(searchTerm.toLowerCase());
 
         // Payment status filter
         const matchesPayment = paymentFilter === 'ALL' || item.paymentStatus === paymentFilter;
 
-        // Age category filter
-        let matchesCategory = true;
-        if (categoryFilter === 'UNDER_20') {
-          matchesCategory = item.under20Count > 0;
-        } else if (categoryFilter === 'ABOVE_20') {
-          matchesCategory = item.above20Count > 0;
-        }
-
-        return matchesSearch && matchesPayment && matchesCategory;
+        return matchesSearch && matchesPayment;
       })
       .sort((a, b) => {
-        if (sortBy === 'AMOUNT_DESC') return b.amount - a.amount;
-        if (sortBy === 'AMOUNT_ASC') return a.amount - b.amount;
-        if (sortBy === 'OLDEST') return a.registrationId.localeCompare(b.registrationId);
+        const amtA = a.expectedAmount || a.amount || 0;
+        const amtB = b.expectedAmount || b.amount || 0;
+        if (sortBy === 'AMOUNT_DESC') return amtB - amtA;
+        if (sortBy === 'AMOUNT_ASC') return amtA - amtB;
+        if (sortBy === 'OLDEST') return (a.registrationId || '').localeCompare(b.registrationId || '');
         // Default NEWEST
-        return b.registrationId.localeCompare(a.registrationId);
+        return (b.registrationId || '').localeCompare(a.registrationId || '');
       });
-  }, [registrations, searchTerm, paymentFilter, categoryFilter, sortBy]);
+  }, [registrations, searchTerm, paymentFilter, sortBy]);
 
   // Download Master Excel (.xlsx) with physically embedded screenshots
+  // Master Excel (.xlsx) Export with physically embedded receipt images
   const handleExportMasterExcel = async () => {
-    setIsExporting(true);
     try {
+      setIsExporting(true);
       const blob = await api.downloadMasterExcel();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.setAttribute('href', url);
-      link.setAttribute('download', `Dandiya_Master_Registrations_${new Date().toISOString().slice(0, 10)}.xlsx`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const today = new Date().toISOString().slice(0, 10);
+      a.download = `Taal_Pe_Nacho_Re_Master_Registrations_${today}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
     } catch (err) {
-      console.warn('Backend Master Excel export unavailable, falling back to CSV:', err);
+      console.warn('Backend Master Excel export issue, falling back to client-side CSV:', err);
+      // Fallback to CSV so admin is never blocked
       handleExportCSV();
     } finally {
       setIsExporting(false);
@@ -251,15 +251,6 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
       
       {/* Dedicated Organizer / Admin Navigation Bar */}
       <AdminNavbar
-        activeTab={activeTab}
-        onSelectTab={(tab) => {
-          setActiveTab(tab);
-          if (tab === 'payments') {
-            setPaymentFilter('PAID');
-          } else if (tab === 'registrations') {
-            setPaymentFilter('ALL');
-          }
-        }}
         onOpenPreview={onBackToSite}
         onExportExcel={handleExportMasterExcel}
         isExporting={isExporting}
@@ -278,47 +269,112 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
             EVENT REGISTRATION DASHBOARD
           </h1>
           <p className="text-stone-500 text-sm mt-1">
-            Master Registration Overview &bull; 1 Completed Registration = 1 Master Row
+            Master Registration Overview &bull; 1 Completed Registration = 1 Master Row &bull; Click any stat card to filter
           </p>
         </div>
 
-        {/* 6 Dynamic Statistic Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+        {/* 5 Interactive Dynamic Statistic Cards (Click Any Card to Filter Table) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-8">
           
-          <div className="bg-white p-4 rounded-2xl border border-amber-200/90 shadow-sm">
-            <span className="text-[10px] uppercase font-bold text-stone-400 block tracking-wider">TOTAL REGISTRATIONS</span>
-            <p className="text-2xl font-extrabold text-stone-900 mt-1">{stats.totalRegs}</p>
-            <span className="text-[10px] text-stone-500">Master Orders</span>
+          {/* Card 1: Total Registrations */}
+          <div 
+            onClick={() => {
+              setPaymentFilter('ALL');
+              setSearchTerm('');
+            }}
+            className={`p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer select-none active:scale-[0.98] ${
+              paymentFilter === 'ALL'
+                ? 'bg-amber-500/10 border-amber-500 shadow-md ring-2 ring-amber-400/40'
+                : 'bg-white border-amber-200/90 shadow-sm hover:border-amber-400 hover:shadow-md'
+            }`}
+            title="Click to view all registrations"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase font-bold text-stone-500 tracking-wider">TOTAL REGISTRATIONS</span>
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${paymentFilter === 'ALL' ? 'bg-amber-200 text-amber-900' : 'bg-stone-100 text-stone-600'}`}>
+                {paymentFilter === 'ALL' ? 'ALL' : 'VIEW ALL'}
+              </span>
+            </div>
+            <p className="text-2xl sm:text-3xl font-extrabold text-stone-900 mt-2">{stats.totalRegs}</p>
+            <span className="text-[11px] text-stone-500 font-medium">Master Bookings</span>
           </div>
 
-          <div className="bg-white p-4 rounded-2xl border border-amber-200/90 shadow-sm">
-            <span className="text-[10px] uppercase font-bold text-stone-400 block tracking-wider">TOTAL PARTICIPANTS</span>
-            <p className="text-2xl font-extrabold text-stone-900 mt-1">{stats.totalParticipants}</p>
-            <span className="text-[10px] text-stone-500">Issued Passes</span>
+          {/* Card 2: Total Participants / Issued Passes */}
+          <div 
+            onClick={() => {
+              setPaymentFilter('ALL');
+            }}
+            className="p-4 sm:p-5 rounded-2xl border bg-white border-amber-200/90 shadow-sm hover:border-amber-400 hover:shadow-md transition-all cursor-pointer select-none active:scale-[0.98]"
+            title="Total attendees across all bookings"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase font-bold text-stone-500 tracking-wider">TOTAL PARTICIPANTS</span>
+              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                ₹299 / PASS
+              </span>
+            </div>
+            <p className="text-2xl sm:text-3xl font-extrabold text-stone-900 mt-2">{stats.totalParticipants}</p>
+            <span className="text-[11px] text-stone-500 font-medium">Issued Passes</span>
           </div>
 
-          <div className="bg-white p-4 rounded-2xl border border-emerald-200/90 shadow-sm bg-emerald-50/20">
-            <span className="text-[10px] uppercase font-bold text-emerald-700 block tracking-wider">≤20 PARTICIPANTS</span>
-            <p className="text-2xl font-extrabold text-emerald-800 mt-1">{stats.under20}</p>
-            <span className="text-[10px] text-emerald-600 font-semibold">@ ₹199 / pass</span>
+          {/* Card 3: Successful Payments (PAID) */}
+          <div 
+            onClick={() => setPaymentFilter('PAID')}
+            className={`p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer select-none active:scale-[0.98] ${
+              paymentFilter === 'PAID'
+                ? 'bg-emerald-500/15 border-emerald-500 shadow-md ring-2 ring-emerald-400/40'
+                : 'bg-white border-emerald-200/80 shadow-sm hover:border-emerald-400 hover:shadow-md'
+            }`}
+            title="Click to filter table by PAID orders only"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase font-bold text-emerald-700 tracking-wider">SUCCESSFUL PAYMENTS</span>
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${paymentFilter === 'PAID' ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-800'}`}>
+                {paymentFilter === 'PAID' ? 'FILTERED' : 'PAID ONLY'}
+              </span>
+            </div>
+            <p className="text-2xl sm:text-3xl font-extrabold text-emerald-700 mt-2">{stats.paidCount}</p>
+            <span className="text-[11px] text-emerald-700 font-semibold">Verified Orders</span>
           </div>
 
-          <div className="bg-white p-4 rounded-2xl border border-red-200/90 shadow-sm bg-red-50/20">
-            <span className="text-[10px] uppercase font-bold text-royal-crimson block tracking-wider">&gt;20 PARTICIPANTS</span>
-            <p className="text-2xl font-extrabold text-royal-crimson mt-1">{stats.above20}</p>
-            <span className="text-[10px] text-red-600 font-semibold">@ ₹299 / pass</span>
+          {/* Card 4: Pending / Unverified Orders */}
+          <div 
+            onClick={() => setPaymentFilter('PENDING')}
+            className={`p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer select-none active:scale-[0.98] ${
+              paymentFilter === 'PENDING'
+                ? 'bg-amber-500/20 border-amber-500 shadow-md ring-2 ring-amber-400/40'
+                : 'bg-white border-amber-200/80 shadow-sm hover:border-amber-400 hover:shadow-md'
+            }`}
+            title="Click to filter table by PENDING orders awaiting verification"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase font-bold text-amber-800 tracking-wider">PENDING AUDITS</span>
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${paymentFilter === 'PENDING' ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-800'}`}>
+                {paymentFilter === 'PENDING' ? 'FILTERED' : 'AUDIT'}
+              </span>
+            </div>
+            <p className="text-2xl sm:text-3xl font-extrabold text-amber-700 mt-2">{stats.pendingCount}</p>
+            <span className="text-[11px] text-stone-500 font-medium">Awaiting Proof Verification</span>
           </div>
 
-          <div className="bg-white p-4 rounded-2xl border border-amber-300 shadow-sm bg-amber-50/30">
-            <span className="text-[10px] uppercase font-bold text-amber-800 block tracking-wider">TOTAL REVENUE</span>
-            <p className="text-2xl font-extrabold text-stone-900 mt-1">₹{stats.revenue.toLocaleString('en-IN')}</p>
-            <span className="text-[10px] text-amber-700 font-semibold">Net Collections</span>
-          </div>
-
-          <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-sm">
-            <span className="text-[10px] uppercase font-bold text-stone-400 block tracking-wider">SUCCESSFUL PAYMENTS</span>
-            <p className="text-2xl font-extrabold text-emerald-700 mt-1">{stats.paidCount}</p>
-            <span className="text-[10px] text-stone-500">PAID Orders</span>
+          {/* Card 5: Total Revenue Collections */}
+          <div 
+            onClick={() => setPaymentFilter('PAID')}
+            className={`p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer select-none active:scale-[0.98] ${
+              paymentFilter === 'PAID'
+                ? 'bg-amber-500/15 border-amber-500 shadow-md ring-2 ring-amber-400/40'
+                : 'bg-white border-amber-200/90 shadow-sm hover:border-amber-400 hover:shadow-md'
+            }`}
+            title="Total verified collections from paid registrations (Click to view Paid)"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase font-bold text-stone-500 tracking-wider">TOTAL REVENUE</span>
+              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                NET
+              </span>
+            </div>
+            <p className="text-2xl sm:text-3xl font-extrabold text-stone-900 mt-2">₹{stats.revenue.toLocaleString('en-IN')}</p>
+            <span className="text-[11px] text-emerald-700 font-semibold">Net Collections</span>
           </div>
 
         </div>
@@ -347,26 +403,12 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
               <select
                 value={paymentFilter}
                 onChange={(e) => setPaymentFilter(e.target.value)}
-                className="px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-semibold text-stone-700 focus:outline-none"
+                className="px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-semibold text-stone-700 focus:outline-none cursor-pointer"
               >
                 <option value="ALL">All Payments</option>
                 <option value="PAID">PAID</option>
                 <option value="PENDING">PENDING</option>
                 <option value="FAILED">FAILED</option>
-              </select>
-            </div>
-
-            {/* Category Filter */}
-            <div className="flex items-center gap-1.5 text-xs">
-              <span className="font-bold text-stone-400 uppercase text-[10px]">Category:</span>
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                className="px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-semibold text-stone-700 focus:outline-none"
-              >
-                <option value="ALL">All Categories</option>
-                <option value="UNDER_20">Has ≤20 (Student)</option>
-                <option value="ABOVE_20">Has &gt;20 (Adult)</option>
               </select>
             </div>
 
@@ -376,7 +418,7 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                className="px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-semibold text-stone-700 focus:outline-none"
+                className="px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-semibold text-stone-700 focus:outline-none cursor-pointer"
               >
                 <option value="NEWEST">Newest First</option>
                 <option value="OLDEST">Oldest First</option>
@@ -385,6 +427,19 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
               </select>
             </div>
 
+            {/* Clear filter indicator button if filtered */}
+            {paymentFilter !== 'ALL' && (
+              <button
+                type="button"
+                onClick={() => setPaymentFilter('ALL')}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 transition-colors flex items-center gap-1 cursor-pointer"
+                title="Reset to all orders"
+              >
+                <span>Clear Filter ({paymentFilter})</span>
+                <span className="text-amber-700 font-extrabold">&times;</span>
+              </button>
+            )}
+
           </div>
 
         </div>
@@ -392,18 +447,46 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
         {/* Master Excel View Table */}
         <div className="bg-white rounded-3xl border border-amber-200/90 shadow-festive overflow-hidden">
           
-          <div className="p-4 sm:p-5 bg-amber-50/50 border-b border-amber-100 flex flex-wrap items-center justify-between gap-3">
+          <div className="p-4 sm:p-5 bg-gradient-to-r from-amber-50/80 via-emerald-50/30 to-amber-50/80 border-b border-amber-200/80 flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h2 className="font-festive font-extrabold text-stone-900 text-lg">
-                MASTER EXCEL VIEW
-              </h2>
-              <p className="text-xs text-stone-500">
+              <div className="flex items-center gap-2">
+                <h2 className="font-festive font-extrabold text-stone-900 text-lg sm:text-xl tracking-wide">
+                  MASTER EXCEL VIEW
+                </h2>
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                  Self-Contained .XLSX + Images
+                </span>
+              </div>
+              <p className="text-xs text-stone-500 mt-0.5">
                 Displaying {filteredRegistrations.length} of {registrations.length} Master Rows (1 Registration = 1 Master Row)
               </p>
             </div>
 
-            <div className="text-xs font-bold text-amber-800 bg-amber-100/70 px-3 py-1 rounded-full">
-              Automated Dynamic Calculations
+            <div className="flex items-center gap-3">
+              <div className="hidden md:inline-block text-xs font-bold text-amber-800 bg-amber-100/70 px-3 py-1 rounded-full border border-amber-200">
+                Automated Dynamic Calculations
+              </div>
+
+              {/* PRIMARY DOWNLOAD MASTER EXCEL BUTTON */}
+              <button
+                type="button"
+                onClick={handleExportMasterExcel}
+                disabled={isExporting}
+                className="px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-extrabold text-white bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-800 shadow-md hover:shadow-lg active:scale-95 transition-all flex items-center gap-2 border border-emerald-400/50 cursor-pointer disabled:opacity-60"
+                title="Download complete Master Excel spreadsheet with embedded payment receipt images and in-depth details"
+              >
+                {isExporting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>GENERATING MASTER EXCEL...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4 text-emerald-200" />
+                    <span>DOWNLOAD MASTER EXCEL (.XLSX)</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
 

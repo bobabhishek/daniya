@@ -1,4 +1,5 @@
 import os
+import time
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
@@ -27,25 +28,26 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing Garba & Dandiya 2026 Backend...")
     init_firebase()
     
-    # Pre-seed sample registrations if database is empty
-    db = get_db()
-    existing_docs = list(db.collection("registrations").stream())
-    if len(existing_docs) == 0:
-        logger.info("Seeding initial reference registrations...")
+    # Pre-seed sample registrations in development mode only
+    if settings.ENVIRONMENT != "production":
+        db = get_db()
         from .seed_data import SEED_REGISTRATIONS
         from .services.ticket_service import TicketService
         for item in SEED_REGISTRATIONS:
             reg_id = item["registrationId"]
-            db.collection("registrations").document(reg_id).set(item)
-            for p in item.get("participants", []):
-                t_obj = TicketService.build_ticket(
-                    registration_id=reg_id,
-                    ticket_id=p["ticketId"],
-                    participant=p,
-                    payment_status=item.get("paymentStatus", "PAID")
-                )
-                TicketService.save_tickets([t_obj])
-        logger.info(f"Seeded {len(SEED_REGISTRATIONS)} records successfully.")
+            doc_snap = db.collection("registrations").document(reg_id).get()
+            if not doc_snap.exists:
+                db.collection("registrations").document(reg_id).set(item)
+                for p in item.get("participants", []):
+                    t_obj = TicketService.build_ticket(
+                        registration_id=reg_id,
+                        ticket_id=p["ticketId"],
+                        participant=p,
+                        payment_status=item.get("paymentStatus", "PAID")
+                    )
+                    TicketService.save_tickets([t_obj])
+                logger.info(f"Seeded reference registration {reg_id} successfully.")
+
         from .services.id_service import IdService
         max_seq = IdService._scan_max_registration_sequence(db)
         if max_seq > 0:
@@ -75,14 +77,45 @@ async def add_security_headers(request: Request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
 
-# CORS Middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins or ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Real-time HTTP Request & Status Code Logging Middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    t_start = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = (time.perf_counter() - t_start) * 1000
+
+    code = response.status_code
+    if code < 300:
+        icon = "🟢"
+    elif code < 400:
+        icon = "🔵"
+    elif code < 500:
+        icon = "🟡"
+    else:
+        icon = "🔴"
+
+    client_ip = request.client.host if request.client else "unknown"
+    print(f"{icon} [HTTP] {request.method:<6} {request.url.path:<30} -> {code} ({duration_ms:.1f}ms) [{client_ip}]", flush=True)
+    return response
+
+# CORS Middleware: In production, strictly restrict to configured ALLOWED_ORIGINS; in development permit localhost ports
+if settings.ENVIRONMENT == "production":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins or ["*"],
+        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # Register Routers
 app.include_router(auth.router)
