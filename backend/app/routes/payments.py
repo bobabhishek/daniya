@@ -93,14 +93,16 @@ async def verify_payment_proof(
             detail="Uploaded file is empty. Please select a valid payment screenshot."
         )
 
-    # Execute authoritative three-way verification with safe error handling
+    # Execute authoritative three-way verification with safe error handling in worker thread
     try:
-        result = PaymentService.verify_payment_receipt(
-            registration_id=registration_id,
-            entered_amount=entered_amount,
-            image_bytes=image_bytes,
-            filename=receipt.filename or "payment_receipt.jpg",
-            content_type=content_type
+        from anyio import to_thread
+        result = await to_thread.run_sync(
+            PaymentService.verify_payment_receipt,
+            registration_id,
+            entered_amount,
+            image_bytes,
+            receipt.filename or "payment_receipt.jpg",
+            content_type
         )
         return PaymentVerificationResponse(**result)
     except Exception as e:
