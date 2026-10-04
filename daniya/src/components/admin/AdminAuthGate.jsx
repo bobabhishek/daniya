@@ -6,7 +6,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { EVENT_CONFIG } from '../../config/eventConfig';
-import { ADMIN_EMAIL } from '../../utils/authRoles';
 
 export default function AdminAuthGate({ children, onBackToSite }) {
   const { user, loading, isAdmin, isServerVerified, login, signup, loginWithGoogle, logout } = useAuth();
@@ -74,7 +73,7 @@ export default function AdminAuthGate({ children, onBackToSite }) {
               <span>Organizer Authorization Rule:</span>
             </p>
             <p className="mt-1 text-stone-600 text-[11px] leading-relaxed">
-              Only the authorized administrator account (<span className="font-mono font-bold text-royal-crimson">{ADMIN_EMAIL}</span>) is granted permission to view master attendee records and financials.
+              Only authorized organizer administrator accounts are granted permission to view master attendee records and financials.
             </p>
           </div>
 
@@ -264,7 +263,7 @@ export default function AdminAuthGate({ children, onBackToSite }) {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder={ADMIN_EMAIL}
+                  placeholder="organizer@event.com"
                   className="w-full pl-10 pr-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-stone-800 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
                 />
               </div>
