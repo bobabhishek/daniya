@@ -145,13 +145,14 @@ export default function StepPayment({
       setIsVerifying(false);
 
       if (response && response.success && response.verificationStatus === 'VERIFIED') {
-        // SUCCESS: Three-way match verified on backend
+        // SUCCESS: Payment verified
         onPaymentSuccess(response);
       } else {
-        // MISMATCH OR OCR FAILURE
+        // Verification failure / mismatch
         setVerificationError({
-          message: response.message || 'Payment amount could not be verified.',
-          mismatchReason: response.mismatchReason || 'Uploaded screenshot details do not match the expected registration amount.',
+          isTimeout: false,
+          message: 'PAYMENT VERIFICATION FAILED',
+          mismatchReason: response.mismatchReason || "We couldn't verify this payment. Please check the receipt and try again.",
           expected: response.expectedAmount ?? expectedAmount,
           entered: response.enteredAmount ?? numAmount,
           detected: response.ocrAmount ?? 'Could not be detected'
@@ -159,13 +160,16 @@ export default function StepPayment({
       }
     } catch (err) {
       setIsVerifying(false);
-      const errMsg = err.message || 'Network error occurred during payment verification.';
+      const isTimeout = err.isTimeout || err.name === 'AbortError' || String(err.message || '').includes('longer than expected');
       setVerificationError({
-        message: 'Payment Verification Failed',
-        mismatchReason: errMsg,
+        isTimeout,
+        message: isTimeout ? 'VERIFICATION TAKING LONGER THAN EXPECTED' : 'PAYMENT VERIFICATION FAILED',
+        mismatchReason: isTimeout
+          ? 'Please try again in a moment.'
+          : "We couldn't verify this payment. Please check the receipt and try again.",
         expected: expectedAmount,
         entered: numAmount,
-        detected: 'Error reading receipt'
+        detected: isTimeout ? 'Pending verification' : 'Could not be verified'
       });
     }
   };
@@ -660,14 +664,14 @@ export default function StepPayment({
               </h3>
               
               <p className="text-xs sm:text-sm text-stone-600 mt-1.5 leading-relaxed">
-                We're securely checking your payment receipt with backend 3-way matching.
+                We're securely verifying your payment receipt.
               </p>
 
               {/* Real-time Checklist of Verification Steps */}
               <div className="mt-5 p-4 rounded-2xl bg-stone-50 border border-stone-200 text-left space-y-2.5 text-xs">
                 <div className="flex items-center gap-2.5 text-emerald-800 font-semibold">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Receipt uploaded &amp; authenticated</span>
+                  <span>1. Receipt uploaded</span>
                 </div>
 
                 <div className="flex items-center gap-2.5 text-stone-700 font-medium">
@@ -676,7 +680,7 @@ export default function StepPayment({
                   ) : (
                     <Loader2 className="w-4 h-4 text-amber-600 animate-spin shrink-0" />
                   )}
-                  <span>Verifying receipt details...</span>
+                  <span>2. Checking payment details...</span>
                 </div>
 
                 <div className="flex items-center gap-2.5 text-stone-700 font-medium">
@@ -685,18 +689,27 @@ export default function StepPayment({
                   ) : (
                     <span className="w-4 h-4 rounded-full border-2 border-stone-300 shrink-0" />
                   )}
-                  <span>Matching exact booking amount (₹{expectedAmount})</span>
+                  <span>3. Confirming payment...</span>
+                </div>
+
+                <div className="flex items-center gap-2.5 text-stone-700 font-medium">
+                  {verifyElapsed >= 3 ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <span className="w-4 h-4 rounded-full border-2 border-stone-300 shrink-0" />
+                  )}
+                  <span>4. Finalizing registration...</span>
                 </div>
               </div>
 
-              {/* Extended Reassurance Notice if OCR takes >4 seconds */}
-              {verifyElapsed >= 4 && (
+              {/* Extended Reassurance Notice if verification takes >4 seconds */}
+              {verifyElapsed >= 4 && verifyElapsed < 20 && (
                 <motion.div
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="mt-4 p-2.5 rounded-xl bg-amber-50/90 border border-amber-200 text-[11px] text-amber-900 font-medium"
                 >
-                  ⏳ Still verifying your receipt... This can take a few moments.
+                  ⏳ Still confirming your payment... This can take a few moments.
                 </motion.div>
               )}
             </motion.div>
@@ -705,7 +718,7 @@ export default function StepPayment({
       </AnimatePresence>
 
       {/* =========================================================================
-          VERIFICATION FAILURE MODAL (THREE-WAY MISMATCH / OCR FAILURE)
+          VERIFICATION FAILURE / TIMEOUT MODAL
           ========================================================================= */}
       <AnimatePresence>
         {verificationError && (
@@ -721,15 +734,17 @@ export default function StepPayment({
               </div>
 
               <span className="text-[10px] uppercase font-black tracking-widest text-red-700 bg-red-50 px-3 py-1 rounded-full border border-red-200">
-                Verification Failed
+                {verificationError.isTimeout ? 'Verification Delayed' : 'Verification Failed'}
               </span>
 
               <h3 className="text-2xl font-black text-stone-900 font-festive mt-2">
-                Payment Verification Failed
+                {verificationError.message || (verificationError.isTimeout ? 'VERIFICATION TAKING LONGER THAN EXPECTED' : 'PAYMENT VERIFICATION FAILED')}
               </h3>
 
               <p className="text-sm text-stone-600 mt-1">
-                Payment amount could not be verified.
+                {verificationError.isTimeout
+                  ? 'Please try again in a moment.'
+                  : "We couldn't verify this payment. Please check the receipt and try again."}
               </p>
 
               {/* Three-Way Comparison Details Box */}

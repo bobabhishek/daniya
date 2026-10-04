@@ -128,25 +128,42 @@ export const api = {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 20000);
+
     const url = `${API_BASE_URL}/api/payments/verify-proof`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: formData
-    });
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: formData,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
 
-    if (!res.ok) {
-      let errDetail = `HTTP ${res.status}`;
-      try {
-        const errorJson = await res.json();
-        errDetail = errorJson.detail || errorJson.message || errDetail;
-      } catch {}
-      const error = new Error(errDetail);
-      error.status = res.status;
-      throw error;
+      if (!res.ok) {
+        let errDetail = `HTTP ${res.status}`;
+        try {
+          const errorJson = await res.json();
+          errDetail = errorJson.detail || errorJson.message || errDetail;
+        } catch {}
+        const error = new Error(errDetail);
+        error.status = res.status;
+        throw error;
+      }
+
+      return await res.json();
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        const timeoutErr = new Error('Verification is taking longer than expected. Please try again.');
+        timeoutErr.isTimeout = true;
+        throw timeoutErr;
+      }
+      throw err;
     }
-
-    return await res.json();
   },
 
   // Legacy fallback

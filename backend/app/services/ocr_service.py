@@ -1,8 +1,4 @@
 import os
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-
 import io
 import re
 import logging
@@ -62,23 +58,23 @@ class OcrService:
             if img.mode != "RGB":
                 img = img.convert("RGB")
 
-            # Scale ultra-high-res smartphone screenshots to max 1600px
-            max_dim = 1600
+            # Scale ultra-high-res smartphone screenshots to optimal 1080px for fast CPU inference
+            max_dim = 1080
             if max(img.width, img.height) > max_dim:
                 scale = max_dim / float(max(img.width, img.height))
                 new_w = max(1, int(img.width * scale))
                 new_h = max(1, int(img.height * scale))
-                img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                img = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
             elif min(img.width, img.height) < 200:
                 # Upscale tiny screenshots/crops so RapidOCR detection model can resolve digits
                 scale = 2.0
                 new_w = int(img.width * scale)
                 new_h = int(img.height * scale)
-                img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                img = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
 
-            # Save lossless PNG bytes for OCR input to avoid JPEG compression ringing
+            # High-speed in-memory JPEG buffer for OCR engine (5-10x faster than PNG compression)
             buf = io.BytesIO()
-            img.save(buf, format="PNG")
+            img.save(buf, format="JPEG", quality=95)
             clean_bytes = buf.getvalue()
         except Exception as e:
             logger.warning(f"Image decompression error in OCR: {e}")
@@ -179,12 +175,12 @@ class OcrService:
 
         # -------------------------------------------------------------------------
         # Priority 1: High-confidence explicit currency symbol or financial keyword
-        # Handles: ₹299, ₹ 299, Rs. 299, Rs 299, INR 299, 299/-, Paid ₹299, Amount: 299
+        # Handles: ₹299, ₹ 299, Rs. 299, Rs 299, INR 299, 299/-, Paid ₹299, Amount: 299, Rs. 1196, ₹2,990
         # -------------------------------------------------------------------------
         p1_patterns = [
-            r"(?:₹|\u20b9|\u20a8|rs\.?|inr|re\.?)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)",
-            r"([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)\s*(?:₹|\u20b9|\u20a8|rs\.?|inr|re\.?|/-)",
-            r"(?:paid|amount|total|sum|debited|transferred|sent|payment of|rupees)\s*[:\-]?\s*(?:₹|\u20b9|\u20a8|rs\.?|inr|[?*#~]|\b[bBrRfFnN]\b)?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)",
+            r"(?:₹|\u20b9|\u20a8|rs\.?|inr|re\.?)\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)",
+            r"([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)\s*(?:₹|\u20b9|\u20a8|rs\.?|inr|re\.?|/-)",
+            r"(?:paid|amount|total|sum|debited|transferred|sent|payment of|rupees)\s*[:\-]?\s*(?:₹|\u20b9|\u20a8|rs\.?|inr|[?*#~]|\b[bBrRfFnN]\b)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)",
         ]
         for pat in p1_patterns:
             for m in re.finditer(pat, full_text, re.IGNORECASE):
@@ -197,11 +193,11 @@ class OcrService:
         # Priority 2: Common OCR substitutions / character mistakes for ₹ or decimals
         # In RapidOCR (PP-OCR), the Indian Rupee symbol ₹ is frequently recognized as
         # 'B', 'n', 'R', 'F', 'T', 'z', '?', '*', '~', or '¥'.
-        # Handles: B299.00, n299, ?299, 299.00, 1,299.00
+        # Handles: B299.00, n299, ?299, 299.00, 1,299.00, 1196.00
         # -------------------------------------------------------------------------
         p2_patterns = [
-            r"(?:[?*#~¥£$€]|\b[bBnNrRfFtTzZ])\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)",
-            r"\b([0-9]{1,3}(?:,[0-9]{3})*)\.([0-9]{2})\b",
+            r"(?:[?*#~¥£$€]|\b[bBnNrRfFtTzZ])\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)",
+            r"\b([0-9]+(?:,[0-9]{3})*)\.([0-9]{2})\b",
         ]
         for pat in p2_patterns:
             for m in re.finditer(pat, full_text, re.IGNORECASE):
@@ -213,9 +209,9 @@ class OcrService:
         # -------------------------------------------------------------------------
         # Priority 3: Standalone lines in OCR output
         # UPI apps display the payment amount as a prominent standalone block:
-        # e.g. "299", "₹299", "299.00", "1,299"
+        # e.g. "299", "₹299", "299.00", "1,299", "1196"
         # -------------------------------------------------------------------------
-        line_pattern = r"^[₹\u20b9\u20a8?*#~¥£$€bBnNrRfFtTzZ]?\s*([0-9]{1,3}(?:,[0-9]{3})*|[0-9]{2,5})(?:\.[0-9]{2})?\s*(?:/-)?$"
+        line_pattern = r"^[₹\u20b9\u20a8?*#~¥£$€bBnNrRfFtTzZ]?\s*([0-9]+(?:,[0-9]{3})*|[0-9]{2,5})(?:\.[0-9]{2})?\s*(?:/-)?$"
         for line in lines:
             cleaned_line = line.strip()
             m = re.match(line_pattern, cleaned_line, re.IGNORECASE)

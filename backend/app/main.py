@@ -28,6 +28,14 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing Garba & Dandiya 2026 Backend...")
     init_firebase()
     
+    # Pre-warm RapidOCR engine in memory so user payments never suffer cold-start delay
+    try:
+        from .services.ocr_service import get_ocr_engine
+        get_ocr_engine()
+        logger.info("RapidOCR engine pre-warmed successfully at startup.")
+    except Exception as e:
+        logger.warning(f"Could not pre-warm RapidOCR engine at startup: {e}")
+    
     # Pre-seed sample registrations in development mode only
     if settings.ENVIRONMENT != "production":
         db = get_db()

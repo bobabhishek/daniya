@@ -378,7 +378,7 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
               <div className="bg-white rounded-3xl border border-red-200 p-8 text-center max-w-lg mx-auto shadow-sm">
                 <p className="text-red-700 font-bold text-base">Payment Not Verified</p>
                 <p className="text-xs text-stone-600 mt-1">
-                  Event passes are strictly protected and can only be issued after successful backend payment proof verification.
+                  Event passes are strictly protected and are issued immediately after payment verification.
                 </p>
                 <button
                   type="button"

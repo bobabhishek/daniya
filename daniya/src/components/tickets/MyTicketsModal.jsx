@@ -190,7 +190,7 @@ export default function MyTicketsModal({
               <div className="text-center py-16 px-4">
                 <Loader2 className="w-10 h-10 text-amber-600 animate-spin mx-auto mb-3" />
                 <p className="text-sm font-bold text-stone-800">Retrieving Your Verified Passes...</p>
-                <p className="text-xs text-stone-400 mt-1">Fetching admission passes securely from backend</p>
+                <p className="text-xs text-stone-400 mt-1">Loading your admission passes securely...</p>
               </div>
             ) : selectedRegistration ? (
               <div className="space-y-4 sm:space-y-6">
