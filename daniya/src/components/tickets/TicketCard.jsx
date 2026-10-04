@@ -17,8 +17,11 @@ const TicketCard = forwardRef(function TicketCard(
   ref
 ) {
   const ticketVisualRef = useRef(null);
-  const verificationValue = buildVerificationUrl(ticket.ticketId);
-  const participantNumber = index + 1;
+  const safeTicket = ticket || {};
+  const ticketId = safeTicket.ticketId || `${registrationId || 'REG'}-T${String((index || 0) + 1).padStart(2, '0')}`;
+  const participantName = safeTicket.name || safeTicket.participantName || `Participant ${(index || 0) + 1}`;
+  const verificationValue = buildVerificationUrl(ticketId);
+  const participantNumber = (index || 0) + 1;
 
   return (
     <div className="w-full max-w-3xl mx-auto my-4 sm:my-6 px-1 sm:px-0" ref={ref}>
@@ -50,7 +53,7 @@ const TicketCard = forwardRef(function TicketCard(
                 </div>
 
                 <div className="font-festive font-black text-2xl sm:text-3xl text-[#F5E7B2] leading-tight tracking-wide drop-shadow-sm">
-                  ₹{ticket.price || 299}
+                  ₹{safeTicket.price || 299}
                 </div>
                 <p className="text-[10px] text-amber-200/80 uppercase font-bold tracking-wider">
                   Official Admission Pass
@@ -63,7 +66,7 @@ const TicketCard = forwardRef(function TicketCard(
                     TICKET ID
                   </p>
                   <p className="font-mono text-base sm:text-lg font-black text-white tracking-wide break-all leading-snug select-all">
-                    {ticket.ticketId}
+                    {ticketId}
                   </p>
                 </div>
                 <div>
@@ -130,18 +133,18 @@ const TicketCard = forwardRef(function TicketCard(
                     PARTICIPANT {participantNumber} NAME
                   </span>
                   <span className="font-festive font-extrabold text-lg sm:text-xl text-white tracking-wide">
-                    {ticket.name}
+                    {participantName}
                   </span>
                 </div>
 
                 <div className="flex items-center gap-4 text-right">
                   <div>
                     <span className="block text-[9px] uppercase font-bold text-amber-200/70 tracking-widest">AGE</span>
-                    <span className="font-bold text-sm text-amber-100">{ticket.age} yrs</span>
+                    <span className="font-bold text-sm text-amber-100">{safeTicket.age ?? 20} yrs</span>
                   </div>
                   <div>
                     <span className="block text-[9px] uppercase font-bold text-amber-200/70 tracking-widest">EVENT LOCATION</span>
-                    <span className="font-bold text-sm text-amber-100">{ticket.eventLocation || ticket.venue || EVENT_CONFIG.VENUE}</span>
+                    <span className="font-bold text-sm text-amber-100">{safeTicket.eventLocation || safeTicket.venue || EVENT_CONFIG.VENUE}</span>
                   </div>
                 </div>
               </div>

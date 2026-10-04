@@ -95,4 +95,25 @@ describe('Attendee Passes Data Merging', () => {
     assert.equal(merged.length, 1);
     assert.equal(merged[0].registrationId, 'KD-000003');
   });
+
+  test('mergeRegistrationsWithTickets sorts alphanumeric participant IDs ("p1", "p2") in correct order', () => {
+    const mockRegistrations = [
+      {
+        registrationId: 'KD-000004',
+        paymentStatus: 'PAID',
+        verificationStatus: 'VERIFIED',
+        participants: [
+          { participantId: 'p2', name: 'Second Person', dob: '01/01/2000' },
+          { participantId: 'p1', name: 'First Person', dob: '01/01/2000' }
+        ]
+      }
+    ];
+
+    const merged = mergeRegistrationsWithTickets(mockRegistrations, []);
+    assert.equal(merged.length, 1);
+    assert.equal(merged[0].participants[0].name, 'First Person');
+    assert.equal(merged[0].participants[1].name, 'Second Person');
+    assert.equal(merged[0].participants[0].participantNumber, 1);
+    assert.equal(merged[0].participants[1].participantNumber, 2);
+  });
 });

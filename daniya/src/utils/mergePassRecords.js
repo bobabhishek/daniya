@@ -13,11 +13,17 @@ function isVerifiedRegistration(reg) {
   );
 }
 
+function extractParticipantNumber(val) {
+  if (typeof val === 'number') return val;
+  const match = String(val || '').match(/\d+/);
+  return match ? parseInt(match[0], 10) : 0;
+}
+
 function sortParticipants(participants = []) {
   return [...participants].sort((a, b) => {
-    const aNum = a.participantNumber || a.participantId || 0;
-    const bNum = b.participantNumber || b.participantId || 0;
-    if (aNum && bNum) return Number(aNum) - Number(bNum);
+    const aNum = extractParticipantNumber(a.participantNumber ?? a.participantId ?? 0);
+    const bNum = extractParticipantNumber(b.participantNumber ?? b.participantId ?? 0);
+    if (aNum && bNum) return aNum - bNum;
     return 0;
   });
 }

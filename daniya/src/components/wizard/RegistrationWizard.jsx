@@ -146,6 +146,7 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
       const confirmedRecord = await api.getRegistration(verifiedResponse.registrationId);
       if (confirmedRecord && confirmedRecord.verificationStatus === 'VERIFIED') {
         setCompletedRegistration(confirmedRecord);
+        addVerifiedRegistration(confirmedRecord);
         if (onRegistrationCreated) onRegistrationCreated(confirmedRecord);
         setCurrentStep(4);
         window.scrollTo({ top: 200, behavior: 'smooth' });

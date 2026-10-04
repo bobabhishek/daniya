@@ -11,10 +11,11 @@ export function PassesProvider({ children }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const loadedUidRef = useRef(null);
+  const inFlightFetchRef = useRef(null);
 
-  // Authoritative fetch from backend: runs once per authenticated user session
+  // Authoritative fetch from backend with in-flight deduplication
   const fetchPasses = useCallback(async (forceFresh = false) => {
-    if (!user) {
+    if (!user?.uid) {
       setPasses([]);
       loadedUidRef.current = null;
       setLoading(false);
@@ -22,35 +23,58 @@ export function PassesProvider({ children }) {
     }
 
     if (!forceFresh && loadedUidRef.current === user.uid) {
-      return passes;
+      return null;
+    }
+
+    // Return existing in-flight promise if one is already running to avoid duplicate requests
+    if (inFlightFetchRef.current) {
+      return inFlightFetchRef.current;
     }
 
     setLoading(true);
     setError(null);
-    try {
-      const [records, tickets] = await Promise.all([
-        api.getMyRegistrations(),
-        api.getMyTickets(),
-      ]);
 
-      const merged = mergeRegistrationsWithTickets(
-        Array.isArray(records) ? records : [],
-        Array.isArray(tickets) ? tickets : []
-      );
+    const fetchPromise = (async () => {
+      try {
+        const [records, tickets] = await Promise.all([
+          api.getMyRegistrations(),
+          api.getMyTickets(),
+        ]);
 
-      setPasses(merged);
-      loadedUidRef.current = user.uid;
-      return merged;
-    } catch (err) {
-      console.warn('Failed to load user passes from server:', err);
-      setError(err.message || 'Could not retrieve tickets from server.');
-      return [];
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
+        const merged = mergeRegistrationsWithTickets(
+          Array.isArray(records) ? records : [],
+          Array.isArray(tickets) ? tickets : []
+        );
 
-  // Sync with auth changes: clear immediately on logout, fetch once on login
+        setPasses((prev) => {
+          const serverMap = new Map(merged.map((r) => [r.registrationId, r]));
+          const combined = [...merged];
+          // Preserve any locally verified registrations not yet indexed by server
+          for (const existing of prev) {
+            if (existing && !serverMap.has(existing.registrationId)) {
+              combined.unshift(existing);
+            }
+          }
+          return combined;
+        });
+
+        loadedUidRef.current = user.uid;
+        return merged;
+      } catch (err) {
+        console.warn('Failed to load user passes from server:', err);
+        setError(err.message || 'Could not retrieve tickets from server.');
+        return [];
+      } finally {
+        setLoading(false);
+        inFlightFetchRef.current = null;
+      }
+    })();
+
+    inFlightFetchRef.current = fetchPromise;
+    return fetchPromise;
+  }, [user?.uid]);
+
+  // Sync with auth changes: clear on logout, fetch once when user UID changes
   useEffect(() => {
     if (authLoading) return;
 
@@ -62,12 +86,13 @@ export function PassesProvider({ children }) {
     } else if (loadedUidRef.current !== user.uid) {
       fetchPasses(true);
     }
-  }, [user, authLoading, isAuthenticated, fetchPasses]);
+  }, [user?.uid, authLoading, isAuthenticated, fetchPasses]);
 
   // Explicitly clear passes on logout
   const clearPasses = useCallback(() => {
     setPasses([]);
     loadedUidRef.current = null;
+    inFlightFetchRef.current = null;
     setError(null);
     setLoading(false);
   }, []);
@@ -75,27 +100,31 @@ export function PassesProvider({ children }) {
   // Append freshly verified registration immediately so My Passes shows it with zero latency
   const addVerifiedRegistration = useCallback((newRegistration) => {
     if (!newRegistration) return;
+    const normalized = mergeRegistrationsWithTickets([newRegistration], [])[0] || newRegistration;
+    if (user?.uid) {
+      loadedUidRef.current = user.uid;
+    }
     setPasses((prev) => {
-      const exists = prev.some((r) => r.registrationId === newRegistration.registrationId);
+      const exists = prev.some((r) => r.registrationId === normalized.registrationId);
       if (exists) {
         return prev.map((r) =>
-          r.registrationId === newRegistration.registrationId ? { ...r, ...newRegistration } : r
+          r.registrationId === normalized.registrationId ? { ...r, ...normalized } : r
         );
       }
-      return [newRegistration, ...prev];
+      return [normalized, ...prev];
     });
-  }, []);
+  }, [user?.uid]);
 
   const refreshPasses = useCallback(() => fetchPasses(true), [fetchPasses]);
 
-  const value = Object.freeze({
+  const value = React.useMemo(() => ({
     passes,
     loading,
     error,
     refreshPasses,
     clearPasses,
     addVerifiedRegistration
-  });
+  }), [passes, loading, error, refreshPasses, clearPasses, addVerifiedRegistration]);
 
   return (
     <PassesContext.Provider value={value}>

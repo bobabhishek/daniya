@@ -1,3 +1,4 @@
+import time
 from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from ..models.registration import RegistrationCreateRequest, RegistrationRecord

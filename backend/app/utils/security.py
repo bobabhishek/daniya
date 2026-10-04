@@ -1,5 +1,7 @@
+import time
 from typing import Optional, Dict, Any
 from fastapi import Header, HTTPException, status, Depends
+from anyio import to_thread
 from ..config import settings
 from ..firebase import verify_id_token
 
@@ -8,7 +10,9 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> Dict[
     """
     FastAPI dependency to extract and verify Firebase ID Token.
     Returns decoded token dictionary containing 'uid', 'email', 'name', etc.
+    Offloads synchronous verification to worker threads to keep event loop free.
     """
+    t0 = time.perf_counter()
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -25,8 +29,13 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> Dict[
         )
 
     token = parts[1]
+    t_extracted = (time.perf_counter() - t0) * 1000
     try:
-        decoded = verify_id_token(token)
+        t_verify_start = time.perf_counter()
+        decoded = await to_thread.run_sync(verify_id_token, token)
+        t_verify = (time.perf_counter() - t_verify_start) * 1000
+        t_total = (time.perf_counter() - t0) * 1000
+        print(f"[DIAGNOSTIC] get_current_user: token_extract={t_extracted:.3f} ms, verify_id_token={t_verify:.2f} ms, total_auth={t_total:.2f} ms", flush=True)
         return decoded
     except ValueError as e:
         raise HTTPException(

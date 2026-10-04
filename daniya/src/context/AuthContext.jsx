@@ -65,21 +65,57 @@ export const ROLE_STATUS = Object.freeze({
 
 const AuthContext = createContext(null);
 
+const SESSION_CACHE_KEY = 'daniya_auth_session';
+
+function getCachedSession() {
+  if (typeof window === 'undefined' || !window.localStorage) return null;
+  try {
+    const raw = window.localStorage.getItem(SESSION_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.uid && (parsed.email || parsed.displayName)) {
+      return parsed;
+    }
+  } catch (e) {
+    // ignore corrupted cache
+  }
+  return null;
+}
+
+function setCachedSession(session) {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    if (session) {
+      window.localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(session));
+    } else {
+      window.localStorage.removeItem(SESSION_CACHE_KEY);
+    }
+  } catch (e) {
+    // ignore storage quota issues
+  }
+}
+
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [authStatus, setAuthStatus] = useState(AUTH_STATUS.INITIALIZING);
-  const [role, setRole] = useState(ROLES.GUEST);
-  const [roleStatus, setRoleStatus] = useState(ROLE_STATUS.INITIALIZING);
-  const [isServerVerified, setIsServerVerified] = useState(false);
+  const initialCache = getCachedSession();
+  const [user, setUser] = useState(initialCache);
+  const [authStatus, setAuthStatus] = useState(
+    initialCache ? AUTH_STATUS.AUTHENTICATED : AUTH_STATUS.INITIALIZING
+  );
+  const [role, setRole] = useState(initialCache?.role || ROLES.GUEST);
+  const [roleStatus, setRoleStatus] = useState(
+    initialCache ? ROLE_STATUS.RESOLVED : ROLE_STATUS.INITIALIZING
+  );
+  const [isServerVerified, setIsServerVerified] = useState(Boolean(initialCache?.isServerVerified));
   const { showToast } = useToast();
 
   const sessionGenRef = useRef(0);
-  const cachedUidRef = useRef(null);
+  const cachedUidRef = useRef(initialCache?.uid || null);
 
   // Authoritatively resolve user and role ONCE per session
   const resolveSession = useCallback(async (currentUser, currentGen) => {
     if (!currentUser) {
       if (sessionGenRef.current === currentGen) {
+        setCachedSession(null);
         setUser(null);
         setRole(ROLES.GUEST);
         setAuthStatus(AUTH_STATUS.UNAUTHENTICATED);
@@ -90,14 +126,29 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    // If session UID is already verified and cached in memory, do not re-verify
-    if (cachedUidRef.current === currentUser.uid && sessionGenRef.current === currentGen) {
+    // Immediately resolve user identity and role from credentials without waiting for network
+    const isKnownAdmin = isAdminUser(currentUser);
+    const immediateRole = isKnownAdmin ? ROLES.ADMIN : ROLES.ATTENDEE;
+    const sessionObj = {
+      uid: currentUser.uid,
+      email: currentUser.email,
+      displayName: currentUser.displayName,
+      photoURL: currentUser.photoURL,
+      role: immediateRole,
+      isServerVerified: isKnownAdmin
+    };
+
+    if (sessionGenRef.current === currentGen) {
       setUser(currentUser);
+      setRole(immediateRole);
       setAuthStatus(AUTH_STATUS.AUTHENTICATED);
       setRoleStatus(ROLE_STATUS.RESOLVED);
-      return;
+      setIsServerVerified(isKnownAdmin);
+      cachedUidRef.current = currentUser.uid;
+      setCachedSession(sessionObj);
     }
 
+    // Verify role authoritatively with backend in the background
     try {
       const token = await currentUser.getIdToken();
       if (sessionGenRef.current !== currentGen) return;
@@ -105,30 +156,18 @@ export function AuthProvider({ children }) {
       if (token) {
         const verified = await verifyServerRole(token);
         if (sessionGenRef.current === currentGen) {
-          const isKnownAdmin = isAdminUser(currentUser);
           const resolvedRole = (verified && verified.role === ROLES.ADMIN) || isKnownAdmin ? ROLES.ADMIN : ROLES.ATTENDEE;
-          setUser(currentUser);
           setRole(resolvedRole);
-          setAuthStatus(AUTH_STATUS.AUTHENTICATED);
-          setRoleStatus(ROLE_STATUS.RESOLVED);
           setIsServerVerified(Boolean(verified.authenticated) || isKnownAdmin);
-          cachedUidRef.current = currentUser.uid;
-          return;
+          setCachedSession({
+            ...sessionObj,
+            role: resolvedRole,
+            isServerVerified: Boolean(verified.authenticated) || isKnownAdmin
+          });
         }
       }
     } catch (err) {
       console.warn("Server role verification issue:", err);
-    }
-
-    // Fallback if network unreachable or slow: accurately check if admin
-    if (sessionGenRef.current === currentGen) {
-      const isKnownAdmin = isAdminUser(currentUser);
-      setUser(currentUser);
-      setRole(isKnownAdmin ? ROLES.ADMIN : ROLES.ATTENDEE);
-      setAuthStatus(AUTH_STATUS.AUTHENTICATED);
-      setRoleStatus(ROLE_STATUS.RESOLVED);
-      setIsServerVerified(isKnownAdmin);
-      cachedUidRef.current = currentUser.uid;
     }
   }, []);
 
@@ -242,6 +281,7 @@ export function AuthProvider({ children }) {
       sessionGenRef.current += 1;
       cachedUidRef.current = null;
       clearRoleCache();
+      setCachedSession(null);
       
       const prevName = user?.displayName || user?.email?.split('@')[0] || 'Attendee';
       await firebaseSignOut(auth);

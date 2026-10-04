@@ -15,10 +15,27 @@ export function getPublicAppUrl() {
 }
 
 /**
+ * Wait for Firebase Auth to finish restoring session on refresh/init.
+ */
+async function waitForAuthInit() {
+  if (auth && typeof auth.authStateReady === 'function') {
+    try {
+      await auth.authStateReady();
+    } catch (e) {
+      // Gracefully continue
+    }
+  }
+}
+
+/**
  * Retrieve current Firebase user ID token for API authorization.
  */
 async function getAuthToken() {
-  if (auth && auth.currentUser) {
+  if (!auth) return null;
+  if (!auth.currentUser) {
+    await waitForAuthInit();
+  }
+  if (auth.currentUser) {
     try {
       const token = await auth.currentUser.getIdToken();
       if (token) return token;

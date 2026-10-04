@@ -1,3 +1,4 @@
+import time
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from ..config import settings
@@ -88,8 +89,11 @@ class RegistrationService:
         )
 
         # 5. Persist Master Record to Firestore (no tickets issued yet)
+        t_db_start = time.perf_counter()
         db = get_db()
         db.collection("registrations").document(reg_id).set(master_record.model_dump())
+        t_db_ms = (time.perf_counter() - t_db_start) * 1000
+        print(f"[DIAGNOSTIC] Firestore/database set('registrations', '{reg_id}') took {t_db_ms:.2f} ms", flush=True)
 
         return master_record
 

@@ -20,19 +20,22 @@ export default function MyTicketsModal({
   initialTicketId = null,
 }) {
   const modalPanelRef = useRef(null);
-  const [selectedRegistration, setSelectedRegistration] = useState(null);
+  const hasFetchedForOpenRef = useRef(false);
+  const [selectedRegistrationId, setSelectedRegistrationId] = useState(initialRegistrationId || null);
   const { passes: userRegistrations, loading: isLoading, error: fetchError, refreshPasses } = usePasses();
 
-  // Resolve deep link if provided
-  useEffect(() => {
-    if (!isOpen || userRegistrations.length === 0) return;
+  // Derive active selected registration directly from userRegistrations without setState loop
+  const selectedRegistration = React.useMemo(() => {
+    if (!isOpen || userRegistrations.length === 0) return null;
+
+    if (selectedRegistrationId) {
+      const match = userRegistrations.find((r) => r.registrationId === selectedRegistrationId);
+      if (match) return match;
+    }
 
     if (initialRegistrationId) {
       const deepLinked = userRegistrations.find((r) => r.registrationId === initialRegistrationId);
-      if (deepLinked) {
-        setSelectedRegistration(deepLinked);
-        return;
-      }
+      if (deepLinked) return deepLinked;
     }
 
     if (initialTicketId) {
@@ -40,29 +43,27 @@ export default function MyTicketsModal({
         r.participants?.some((p) => p.ticketId === initialTicketId) ||
         r.ticketIds?.includes(initialTicketId)
       );
-      if (regForTicket) {
-        setSelectedRegistration(regForTicket);
-        return;
-      }
+      if (regForTicket) return regForTicket;
     }
 
-    if (userRegistrations.length === 1 && !selectedRegistration) {
-      setSelectedRegistration(userRegistrations[0]);
+    if (userRegistrations.length === 1) {
+      return userRegistrations[0];
     }
-  }, [isOpen, userRegistrations, initialRegistrationId, initialTicketId, selectedRegistration]);
 
-  // If passes aren't loaded yet, fetch them when modal opens
-  useEffect(() => {
-    if (isOpen && user && userRegistrations.length === 0) {
-      refreshPasses();
-    }
-  }, [isOpen, user, refreshPasses, userRegistrations.length]);
+    return null;
+  }, [isOpen, selectedRegistrationId, initialRegistrationId, initialTicketId, userRegistrations]);
 
+  // If passes aren't loaded yet, fetch them when modal opens (at most once per open)
   useEffect(() => {
     if (!isOpen) {
-      setSelectedRegistration(null);
+      hasFetchedForOpenRef.current = false;
+      return;
     }
-  }, [isOpen]);
+    if (user && userRegistrations.length === 0 && !isLoading && !hasFetchedForOpenRef.current) {
+      hasFetchedForOpenRef.current = true;
+      refreshPasses();
+    }
+  }, [isOpen, user, isLoading, refreshPasses, userRegistrations.length]);
 
   // Trap scroll while modal is open
   useEffect(() => {
@@ -85,8 +86,6 @@ export default function MyTicketsModal({
     if (onNavigateToRegister) onNavigateToRegister();
   };
 
-  if (!isOpen) return null;
-
   /**
    * Called by TicketCard as onDownloadSingle(ticket, ticketVisualRef).
    * ticketVisualRef.current is the cream-wrapped ticket body only — clean PNG output.
@@ -106,7 +105,7 @@ export default function MyTicketsModal({
         logging: false
       });
       const link = document.createElement('a');
-      link.download = `${ticket.ticketId}-${ticket.name.replace(/\s+/g, '_')}.png`;
+      link.download = `${ticket.ticketId || 'ticket'}-${(ticket.name || 'attendee').replace(/\s+/g, '_')}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
     } catch (err) {
@@ -115,47 +114,50 @@ export default function MyTicketsModal({
     }
   }, []);
 
-
   return (
-    <AnimatePresence mode="wait">
-      <div
-        className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="my-passes-title"
-      >
-        {/* Backdrop — blocks all clicks to navbar/page beneath */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={onClose}
-          className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[200]"
-          aria-hidden="true"
-        />
-
-        {/* Modal Window */}
-        <motion.div
-          ref={modalPanelRef}
-          initial={{ opacity: 0, scale: 0.95, y: 15 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 15 }}
-          transition={{ duration: 0.2 }}
-          onClick={(e) => e.stopPropagation()}
-          className="relative w-full max-w-4xl bg-[#FFFDF9] rounded-3xl shadow-2xl border border-amber-200/90 overflow-hidden z-[201] max-h-[90vh] flex flex-col pointer-events-auto"
+    <AnimatePresence>
+      {isOpen && (
+        <div
+          key="my-passes-modal-backdrop-container"
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="my-passes-title"
         >
-          {/* Header */}
-          <div className="bg-gradient-to-r from-red-800 via-rose-700 to-amber-700 p-6 text-white flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-3">
-              {selectedRegistration && (
-                <button
-                  onClick={() => setSelectedRegistration(null)}
-                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
-                  title="Back to bookings list"
-                >
-                  <ArrowLeft className="w-5 h-5" />
-                </button>
-              )}
+          {/* Backdrop — blocks all clicks to navbar/page beneath */}
+          <motion.div
+            key="my-passes-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-stone-900/70 backdrop-blur-sm z-[200]"
+            aria-hidden="true"
+          />
+
+          {/* Modal Window */}
+          <motion.div
+            key="my-passes-modal-window"
+            ref={modalPanelRef}
+            initial={{ opacity: 0, scale: 0.95, y: 15 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 15 }}
+            transition={{ duration: 0.2 }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-4xl bg-[#FFFDF9] rounded-3xl shadow-2xl border border-amber-200/90 overflow-hidden z-[201] max-h-[90vh] flex flex-col pointer-events-auto"
+          >
+            {/* Header */}
+            <div className="bg-gradient-to-r from-red-800 via-rose-700 to-amber-700 p-6 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                {selectedRegistration && (
+                  <button
+                    onClick={() => setSelectedRegistrationId(null)}
+                    className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
+                    title="Back to bookings list"
+                  >
+                    <ArrowLeft className="w-5 h-5" />
+                  </button>
+                )}
               <div className="p-2 rounded-xl bg-white/10 border border-white/20">
                 <Ticket className="w-6 h-6 text-amber-300" />
               </div>
@@ -212,13 +214,13 @@ export default function MyTicketsModal({
                 </div>
 
                 <div className="space-y-4">
-                  {selectedRegistration.participants?.map((participantTicket, idx) => (
+                  {(selectedRegistration.participants || []).filter(Boolean).map((participantTicket, idx) => (
                     <TicketCard
-                      key={participantTicket.ticketId || idx}
+                      key={participantTicket?.ticketId || idx}
                       ticket={participantTicket}
                       registrationId={selectedRegistration.registrationId}
                       index={idx}
-                      totalCount={selectedRegistration.participants.length}
+                      totalCount={selectedRegistration.participants?.length || 1}
                       onDownloadSingle={handleDownloadSingle}
                     />
                   ))}
@@ -293,7 +295,7 @@ export default function MyTicketsModal({
                       </div>
                       <button
                         type="button"
-                        onClick={() => setSelectedRegistration(reg)}
+                        onClick={() => setSelectedRegistrationId(reg.registrationId)}
                         className="px-4 py-2 rounded-xl text-xs font-bold text-stone-800 bg-amber-100/80 hover:bg-amber-200/90 border border-amber-300 transition-colors flex items-center gap-1.5"
                       >
                         <Ticket className="w-3.5 h-3.5 text-amber-700" />
@@ -309,6 +311,7 @@ export default function MyTicketsModal({
           </div>
         </motion.div>
       </div>
-    </AnimatePresence>
-  );
+    )}
+  </AnimatePresence>
+);
 }

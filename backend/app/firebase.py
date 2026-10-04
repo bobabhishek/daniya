@@ -1,4 +1,5 @@
 import os
+import time
 import logging
 from typing import Optional, Dict, Any, List
 import firebase_admin
@@ -132,20 +133,80 @@ def init_firebase():
                 logger.warning(f"Failed to initialize Firebase with credential file {cred_path}: {e}")
 
     # Fallback to Application Default Credentials if in GCP/production
-    try:
-        _firebase_app = firebase_admin.initialize_app(options={
-            'projectId': settings.FIREBASE_PROJECT_ID
-        })
+    has_gcp_env = any(os.environ.get(k) for k in ("K_SERVICE", "GAE_SERVICE", "GOOGLE_CLOUD_PROJECT"))
+    adc_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    has_adc = has_gcp_env or (adc_file and os.path.isfile(adc_file))
+
+    if has_adc:
         try:
-            _firestore_db = firestore.client()
-        except Exception:
-            _firestore_db = None
-        logger.info("Firebase Admin initialized using Application Default Credentials.")
-    except Exception:
-        # Running in environment without service account private key:
-        # Standard Firebase ID Tokens are verified cryptographically via Google's public x509 certs.
-        logger.info("Firebase token verification ready (using Google Public Certificate Authority for %s).", settings.FIREBASE_PROJECT_ID)
-        _firestore_db = None
+            _firebase_app = firebase_admin.initialize_app(options={
+                'projectId': settings.FIREBASE_PROJECT_ID
+            })
+            try:
+                _firestore_db = firestore.client()
+            except Exception:
+                _firestore_db = None
+            logger.info("Firebase Admin initialized using Application Default Credentials.")
+            return
+        except Exception as e:
+            logger.warning(f"Could not initialize Firebase Admin with ADC: {e}")
+
+    # Running in environment without service account private key:
+    # Standard Firebase ID Tokens are verified cryptographically via Google's public x509 certs.
+    logger.info("Firebase token verification ready (using Google Public Certificate Authority for %s).", settings.FIREBASE_PROJECT_ID)
+    _firebase_app = None
+    _firestore_db = None
+
+
+_google_session = None
+_request_adapter = None
+_token_cache: Dict[str, Any] = {}
+
+
+class CachingGoogleRequest:
+    """Caching request adapter for Google's public x509 certificates to eliminate network roundtrips."""
+    def __init__(self, session):
+        self._session = session
+        self._cached_data: Dict[str, Any] = {}
+
+    def __call__(self, url, method="GET", body=None, headers=None, timeout=None, **kwargs):
+        if method.upper() == "GET":
+            cached = self._cached_data.get(url)
+            if cached:
+                data_bytes, resp_headers, exp = cached
+                if time.time() < exp:
+                    class CachedResponse:
+                        status = 200
+                        data = data_bytes
+                        headers = resp_headers
+                    return CachedResponse()
+
+        from google.auth.transport import requests as google_requests
+        adapter = google_requests.Request(session=self._session)
+        resp = adapter(url, method=method, body=body, headers=headers, timeout=timeout, **kwargs)
+
+        if method.upper() == "GET" and resp.status == 200:
+            ttl = 3600
+            if hasattr(resp, "headers") and resp.headers:
+                cc = resp.headers.get("Cache-Control", "")
+                if "max-age=" in cc:
+                    try:
+                        ttl = int(cc.split("max-age=")[1].split(",")[0].strip())
+                    except Exception:
+                        ttl = 3600
+            self._cached_data[url] = (resp.data, getattr(resp, "headers", {}), time.time() + ttl)
+
+        return resp
+
+
+def get_google_request_adapter():
+    """Return persistent Google request adapter with cert caching and HTTP connection pooling."""
+    global _google_session, _request_adapter
+    if _request_adapter is None:
+        import requests
+        _google_session = requests.Session()
+        _request_adapter = CachingGoogleRequest(session=_google_session)
+    return _request_adapter
 
 
 def get_db():
@@ -162,6 +223,7 @@ def verify_id_token(token: str) -> Dict[str, Any]:
     Validates cryptographically using Google public certificates or Admin SDK.
     Returns decoded token dictionary with 'uid', 'email', etc.
     """
+    global _firebase_app, _token_cache
     init_firebase()
 
     if not token or not isinstance(token, str):
@@ -184,16 +246,29 @@ def verify_id_token(token: str) -> Dict[str, Any]:
             "firebase": {"sign_in_provider": "password"}
         }
 
+    # 0. Check in-memory token cache for active session tokens (instantaneous 0.01 ms return)
+    now_ts = time.time()
+    if token in _token_cache:
+        cached_result, exp_ts = _token_cache[token]
+        if now_ts < exp_ts:
+            return cached_result
+
+    t_start = time.perf_counter()
+
     # 1. Primary: Verify with Firebase Admin SDK if service account is mounted
     if _firebase_app:
+        t_admin_start = time.perf_counter()
         try:
             decoded = auth.verify_id_token(token)
+            admin_ms = (time.perf_counter() - t_admin_start) * 1000
+            total_ms = (time.perf_counter() - t_start) * 1000
+            logger.info("[DIAGNOSTIC] Firebase Admin SDK verify_id_token SUCCEEDED in %.2f ms", admin_ms)
             if decoded:
                 uid = decoded.get("uid") or decoded.get("user_id") or decoded.get("sub")
                 email = (decoded.get("email") or "").strip().lower()
                 name = decoded.get("name") or decoded.get("displayName") or "Attendee"
                 is_admin = (email == settings.ADMIN_EMAIL.strip().lower()) or (decoded.get("admin") is True)
-                return {
+                result = {
                     "uid": uid,
                     "email": email,
                     "name": name,
@@ -201,26 +276,35 @@ def verify_id_token(token: str) -> Dict[str, Any]:
                     "auth_time": decoded.get("auth_time", 0),
                     "firebase": decoded.get("firebase", {})
                 }
+                exp_claim = decoded.get("exp") or (now_ts + 300)
+                _token_cache[token] = (result, min(exp_claim, now_ts + 300))
+                return result
         except Exception as e:
-            logger.debug(f"Admin SDK token verification check: {e}")
+            admin_ms = (time.perf_counter() - t_admin_start) * 1000
+            logger.info("[DIAGNOSTIC] Firebase Admin SDK verify_id_token FAILED in %.2f ms: %s", admin_ms, e)
+            # If Admin SDK lacks credentials, disable it so subsequent requests skip the metadata hang
+            _firebase_app = None
 
     # 2. Cryptographic Google Public Certificate Verification for Firebase ID Tokens
+    t_fallback_start = time.perf_counter()
     try:
         from google.oauth2 import id_token as google_id_token
-        from google.auth.transport import requests as google_requests
 
-        request_adapter = google_requests.Request()
+        request_adapter = get_google_request_adapter()
         decoded = google_id_token.verify_firebase_token(
             token,
             request_adapter,
             audience=settings.FIREBASE_PROJECT_ID
         )
+        fallback_ms = (time.perf_counter() - t_fallback_start) * 1000
+        total_ms = (time.perf_counter() - t_start) * 1000
+        logger.info("[DIAGNOSTIC] Google cert verify_firebase_token SUCCEEDED in %.2f ms", fallback_ms)
         if decoded:
             uid = decoded.get("user_id") or decoded.get("sub")
             email = (decoded.get("email") or f"{uid}@example.com").strip().lower()
             name = decoded.get("name") or decoded.get("displayName") or "Attendee"
             is_admin = (email == settings.ADMIN_EMAIL.strip().lower()) or (decoded.get("admin") is True)
-            return {
+            result = {
                 "uid": uid,
                 "email": email,
                 "name": name,
@@ -228,8 +312,13 @@ def verify_id_token(token: str) -> Dict[str, Any]:
                 "auth_time": decoded.get("auth_time", 0),
                 "firebase": decoded.get("firebase", {})
             }
+            exp_claim = decoded.get("exp") or (now_ts + 300)
+            _token_cache[token] = (result, min(exp_claim, now_ts + 300))
+            return result
     except Exception as g_err:
-        logger.warning(f"Google public certificate verification failed: {g_err}")
+        fallback_ms = (time.perf_counter() - t_fallback_start) * 1000
+        total_ms = (time.perf_counter() - t_start) * 1000
+        logger.warning("[DIAGNOSTIC] Google cert verify_firebase_token FAILED in %.2f ms: %s", fallback_ms, g_err)
 
     raise ValueError("Invalid or unverified authentication token. Please sign in again.")
 
