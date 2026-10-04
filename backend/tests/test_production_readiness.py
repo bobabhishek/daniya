@@ -49,3 +49,30 @@ def test_admin_account_permitted():
     res = client.get("/api/admin/stats", headers={"Authorization": f"Bearer {admin_token}"})
     assert res.status_code == 200
     assert "totalRegistrations" in res.json()
+
+
+def test_ocr_service_process_receipt():
+    """Verify OcrService.process_receipt API contract and amount extraction."""
+    import io
+    from PIL import Image, ImageDraw
+    from app.services.ocr_service import OcrService
+
+    # 1. Empty image test
+    empty_res = OcrService.process_receipt(b"")
+    assert empty_res["detected_amount"] is None
+    assert empty_res["confidence"] == 0.0
+
+    # 2. Synthetic receipt with clear amount
+    img = Image.new("RGB", (250, 100), color=(255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    draw.text((10, 20), "PAID INR 299", fill=(0, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG")
+    jpeg_bytes = buf.getvalue()
+
+    res = OcrService.process_receipt(jpeg_bytes)
+    assert res["detected_amount"] == 299
+    assert res["confidence"] > 0.8
+    assert "all_detected_numbers" in res
+    assert 299 in res["all_detected_numbers"]
+
