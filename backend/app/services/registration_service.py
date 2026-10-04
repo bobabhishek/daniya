@@ -154,43 +154,44 @@ class RegistrationService:
 
     @staticmethod
     def list_user_registrations(user_id: str, user_email: Optional[str] = None) -> List[Dict[str, Any]]:
-        db = get_db()
-        results: Dict[str, Dict[str, Any]] = {}
-        user_email_lower = (user_email or "").strip().lower()
+        try:
+            db = get_db()
+            results: Dict[str, Dict[str, Any]] = {}
+            user_email_lower = (user_email or "").strip().lower()
 
-        # Scan all registrations and match by userId OR userEmail (case-insensitive)
-        # This is safe for memory DB and Firestore fallback. For large-scale Firestore
-        # use separate indexed queries per field.
-        for doc in db.collection("registrations").stream():
-            data = doc.to_dict()
-            if not data:
-                continue
-            reg_id = data.get("registrationId", "")
-            stored_uid = data.get("userId") or ""
-            stored_email = (data.get("userEmail") or "").strip().lower()
-            stored_name = (data.get("userName") or "").strip().lower()
+            for doc in db.collection("registrations").stream():
+                data = doc.to_dict()
+                if not data:
+                    continue
+                reg_id = data.get("registrationId", "")
+                stored_uid = data.get("userId") or ""
+                stored_email = (data.get("userEmail") or "").strip().lower()
+                stored_name = (data.get("userName") or "").strip().lower()
 
-            uid_match = stored_uid and stored_uid == user_id
-            email_match = user_email_lower and (
-                stored_email == user_email_lower or
-                (user_email_lower in stored_email and "@" in stored_email)
+                uid_match = stored_uid and stored_uid == user_id
+                email_match = user_email_lower and (
+                    stored_email == user_email_lower or
+                    (user_email_lower in stored_email and "@" in stored_email)
+                )
+                # Support linked test identities (e.g. kamath / bobabhishek18@gmail.com)
+                alias_match = False
+                if user_email_lower and ("bobabhishek" in user_email_lower or "kamath" in user_email_lower):
+                    if "bobabhishek" in stored_email or "kamath" in stored_email or "kamath" in stored_name:
+                        alias_match = True
+
+                if uid_match or email_match or alias_match:
+                    results[reg_id] = data
+
+            # Sort descending by createdAt
+            sorted_list = sorted(
+                list(results.values()),
+                key=lambda x: x.get("createdAt", ""),
+                reverse=True
             )
-            # Support linked test identities (e.g. kamath / bobabhishek18@gmail.com)
-            alias_match = False
-            if user_email_lower and ("bobabhishek" in user_email_lower or "kamath" in user_email_lower):
-                if "bobabhishek" in stored_email or "kamath" in stored_email or "kamath" in stored_name:
-                    alias_match = True
-
-            if uid_match or email_match or alias_match:
-                results[reg_id] = data
-
-        # Sort descending by createdAt
-        sorted_list = sorted(
-            list(results.values()),
-            key=lambda x: x.get("createdAt", ""),
-            reverse=True
-        )
-        return sorted_list
+            return sorted_list
+        except Exception as e:
+            logger.error(f"Error in list_user_registrations: {e}", exc_info=True)
+            return []
 
     @staticmethod
     def list_all_registrations() -> List[Dict[str, Any]]:

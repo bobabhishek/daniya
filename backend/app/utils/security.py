@@ -43,6 +43,12 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> Dict[
             detail=str(e),
             headers={"WWW-Authenticate": "Bearer"}
         )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed or expired session token. Please sign in again.",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
 
 
 async def get_current_admin(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:

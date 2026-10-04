@@ -70,7 +70,28 @@ app = FastAPI(
 # Security Response Headers Middleware
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        logger.error(f"Error in request pipeline: {exc}", exc_info=True)
+        origin = request.headers.get("origin")
+        allowed = settings.cors_origins
+        headers = {
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "X-XSS-Protection": "1; mode=block",
+            "Referrer-Policy": "strict-origin-when-cross-origin"
+        }
+        if origin and ("*" in allowed or origin.strip().rstrip("/") in allowed or settings.ENVIRONMENT != "production"):
+            headers["Access-Control-Allow-Origin"] = origin
+            headers["Access-Control-Allow-Credentials"] = "true"
+            headers["Vary"] = "Origin"
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "An internal error occurred processing your request. Please try again."},
+            headers=headers
+        )
+
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
@@ -81,9 +102,15 @@ async def add_security_headers(request: Request, call_next):
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     t_start = time.perf_counter()
-    response = await call_next(request)
-    duration_ms = (time.perf_counter() - t_start) * 1000
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        duration_ms = (time.perf_counter() - t_start) * 1000
+        client_ip = request.client.host if request.client else "unknown"
+        print(f"[ERR] [HTTP] {request.method:<6} {request.url.path:<30} -> 500 ({duration_ms:.1f}ms) [{client_ip}] [Exception: {exc}]", flush=True)
+        raise exc
 
+    duration_ms = (time.perf_counter() - t_start) * 1000
     code = response.status_code
     if code < 300:
         icon = "🟢"
@@ -102,24 +129,49 @@ async def log_requests(request: Request, call_next):
         print(f"{tag} [HTTP] {request.method:<6} {request.url.path:<30} -> {code} ({duration_ms:.1f}ms) [{client_ip}]", flush=True)
     return response
 
-# CORS Middleware: In production, strictly restrict to configured ALLOWED_ORIGINS; in development permit localhost ports
-if settings.ENVIRONMENT == "production":
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+# CORS Middleware: Authoritatively configured with allowed origins
+cors_list = settings.cors_origins
+logger.info(f"Initializing CORS with allowed origins: {cors_list}")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_list or ["*"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$" if settings.ENVIRONMENT != "production" else None,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,
+)
+
+
+@app.exception_handler(Exception)
+async def global_unhandled_exception_handler(request: Request, exc: Exception):
+    """
+    Ensure all unhandled 500 exceptions return proper JSON and CORS headers
+    to prevent browsers from masking backend errors as CORS failures.
+    """
+    logger.error(f"Unhandled Exception on {request.method} {request.url.path}: {exc}", exc_info=True)
+    origin = request.headers.get("origin")
+    allowed = settings.cors_origins
+    cors_origin = None
+    if origin:
+        cleaned = origin.strip().rstrip("/")
+        if "*" in allowed or cleaned in allowed or settings.ENVIRONMENT != "production":
+            cors_origin = origin
+
+    headers = {}
+    if cors_origin:
+        headers["Access-Control-Allow-Origin"] = cors_origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+        headers["Vary"] = "Origin"
+
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "An internal error occurred processing your request. Please try again."},
+        headers=headers
     )
-else:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origins or ["*"],
-        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+
 
 # Register Routers
 app.include_router(auth.router)

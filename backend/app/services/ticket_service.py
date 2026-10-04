@@ -89,9 +89,12 @@ class TicketService:
 
     @staticmethod
     def list_tickets_for_registration(registration_id: str) -> List[Dict[str, Any]]:
-        db = get_db()
-        query = db.collection("tickets").where("registrationId", "==", registration_id)
-        results = []
-        for doc in query.stream():
-            results.append(doc.to_dict())
-        return results
+        try:
+            db = get_db()
+            query = db.collection("tickets").where("registrationId", "==", registration_id)
+            results = []
+            for doc in query.stream():
+                results.append(doc.to_dict())
+            return results
+        except Exception as e:
+            return []

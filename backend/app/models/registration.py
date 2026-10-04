@@ -34,16 +34,16 @@ class RegistrationRecord(BaseModel):
     userId: Optional[str] = None
     userEmail: Optional[str] = None
     userName: Optional[str] = None
-    createdAt: str
-    dateTime: str  # e.g. "03/10/2026, 02:45 AM" formatted for frontend admin & receipt UI
-    participants: List[ParticipantRecord]
-    participantCount: int
-    count: int  # Exact alias expected by AdminDashboard & MyTicketsModal
-    under20Count: int
-    above20Count: int
-    expectedAmount: int = Field(..., description="Authoritative backend-calculated expected amount")
-    totalAmount: int
-    amount: int  # Exact alias expected by AdminDashboard & MyTicketsModal
+    createdAt: str = ""
+    dateTime: str = ""  # e.g. "03/10/2026, 02:45 AM" formatted for frontend admin & receipt UI
+    participants: List[ParticipantRecord] = Field(default_factory=list)
+    participantCount: int = 1
+    count: int = 1  # Exact alias expected by AdminDashboard & MyTicketsModal
+    under20Count: int = 0
+    above20Count: int = 1
+    expectedAmount: int = 299
+    totalAmount: int = 299
+    amount: int = 299  # Exact alias expected by AdminDashboard & MyTicketsModal
     finalApprovedAmount: Optional[int] = None  # Concession if approved
     enteredAmount: Optional[int] = None  # Amount manually entered by user during proof upload
     ocrAmount: Optional[int] = None  # Amount extracted by OCR from receipt screenshot
@@ -55,7 +55,7 @@ class RegistrationRecord(BaseModel):
     transactionId: Optional[str] = None
     receiptPath: Optional[str] = None
     originalFilename: Optional[str] = None
-    participantsSummary: str
+    participantsSummary: str = ""
     ticketIds: List[str] = Field(default_factory=list, description="Tickets assigned only after successful verification")
     uploadedAt: Optional[str] = None
     updatedAt: Optional[str] = None

@@ -51,7 +51,17 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> List[str]:
-        return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",") if origin.strip()]
+        raw = self.ALLOWED_ORIGINS or ""
+        origins = []
+        for origin in raw.split(","):
+            cleaned = origin.strip().rstrip("/")
+            if cleaned:
+                origins.append(cleaned)
+        # Ensure production Vercel frontend is always allowed
+        prod_vercel = "https://daniya-sand.vercel.app"
+        if prod_vercel not in origins:
+            origins.append(prod_vercel)
+        return origins
 
 
 settings = Settings()
