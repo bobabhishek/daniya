@@ -187,3 +187,149 @@ def test_three_way_payment_verification_matrix():
                 assert "does not match the expected total" in res["mismatchReason"]
 
 
+def test_multiple_attendee_totals_matrix():
+    """
+    Authoritative test suite verifying multiple attendee expected totals:
+    - 1 attendee  = ₹299
+    - 2 attendees = ₹598
+    - 3 attendees = ₹897
+    - 4 attendees = ₹1,196
+    - 5 attendees = ₹1,495
+    - 10 attendees = ₹2,990
+
+    Tests PASS for matching triplets and FAIL for mismatches.
+    """
+    from app.services.payment_service import PaymentService
+    from app.services.registration_service import RegistrationService
+
+    pass_cases = [
+        (299, 299, 299),
+        (598, 598, 598),
+        (897, 897, 897),
+        (1196, 1196, 1196),
+        (1495, 1495, 1495),
+        (2990, 2990, 2990),
+    ]
+
+    for expected, detected, entered in pass_cases:
+        reg = {
+            "registrationId": f"KD-ATT-{expected}",
+            "expectedAmount": expected,
+            "totalAmount": expected,
+            "verificationStatus": "PENDING",
+            "paymentStatus": "PENDING",
+            "ticketIds": []
+        }
+        with patch.object(RegistrationService, "get_registration", return_value=reg):
+            with patch.object(RegistrationService, "mark_payment_verified", return_value={"ticketIds": ["T-01"]}):
+                with patch("app.services.payment_service.OcrService.process_receipt", return_value={"detected_amount": detected, "confidence": 0.95}):
+                    with patch("app.services.receipt_storage_service.ReceiptStorageService.save_verified_receipt", return_value=f"/receipts/KD-ATT-{expected}/pay.jpg"):
+                        res = PaymentService.verify_payment_receipt(f"KD-ATT-{expected}", entered_amount=entered, image_bytes=b"dummy")
+                        assert res["success"] is True, f"Failed for {expected}"
+                        assert res["verificationStatus"] == "VERIFIED"
+                        assert res["paymentStatus"] == "PAID"
+                        assert res["ocrAmount"] == detected
+
+    fail_cases = [
+        (598, 299, 598),  # Expected 598 + detected 299 + entered 598 -> FAIL
+        (598, 897, 598),  # Expected 598 + detected 897 + entered 598 -> FAIL
+        (897, 598, 897),  # Expected 897 + detected 598 + entered 897 -> FAIL
+    ]
+
+    for expected, detected, entered in fail_cases:
+        reg = {
+            "registrationId": f"KD-ATT-FAIL-{expected}",
+            "expectedAmount": expected,
+            "totalAmount": expected,
+            "verificationStatus": "PENDING",
+            "paymentStatus": "PENDING",
+            "ticketIds": []
+        }
+        with patch.object(RegistrationService, "get_registration", return_value=reg):
+            with patch.object(RegistrationService, "mark_payment_failed", return_value=None):
+                with patch("app.services.payment_service.OcrService.process_receipt", return_value={"detected_amount": detected, "confidence": 0.95}):
+                    res = PaymentService.verify_payment_receipt(f"KD-ATT-FAIL-{expected}", entered_amount=entered, image_bytes=b"dummy")
+                    assert res["success"] is False, f"Expected failure for {expected} vs {detected}"
+                    assert res["verificationStatus"] == "FAILED"
+                    assert res["paymentStatus"] == "PENDING"
+                    assert res["ocrAmount"] == detected
+
+
+def test_ocr_multiple_numbers_disambiguation():
+    """
+    CRITICAL CASE: When a receipt contains individual attendee breakdown numbers,
+    transaction IDs, dates, and times, OCR MUST select the expected total amount,
+    and NOT the first sub-item or timestamp.
+    """
+    from app.services.ocr_service import OcrService
+
+    # 1. Expected ₹598 receipt with breakdown [299, 299, 598, utr, date, time]
+    lines_598 = [
+        "Taal Pe Nacho Re 2026",
+        "Pass 1: 299",
+        "Pass 2: 299",
+        "Total Paid: 598",
+        "UPI Ref No: 427819283719",
+        "04/10/2026, 18:45 PM"
+    ]
+    raw_598 = "\n".join(lines_598)
+    res_598 = OcrService._parse_financial_text(lines_598, raw_598, expected_amount=598)
+    assert res_598["detected_amount"] == 598, f"Expected 598, got {res_598['detected_amount']}"
+    assert 299 in res_598["all_detected_numbers"]
+    assert 598 in res_598["all_detected_numbers"]
+
+    # 2. Expected ₹897 receipt with [299, 299, 299, 897]
+    lines_897 = [
+        "Arpith Manohar",
+        "Pass 1: 299",
+        "Pass 2: 299",
+        "Pass 3: 299",
+        "Paid: ₹897",
+        "Transaction ID: T2610041845"
+    ]
+    raw_897 = "\n".join(lines_897)
+    res_897 = OcrService._parse_financial_text(lines_897, raw_897, expected_amount=897)
+    assert res_897["detected_amount"] == 897, f"Expected 897, got {res_897['detected_amount']}"
+
+    # 3. Expected ₹1,196 receipt with [299, 299, 299, 299, 1196]
+    lines_1196 = [
+        "Pass 1: 299",
+        "Pass 2: 299",
+        "Pass 3: 299",
+        "Pass 4: 299",
+        "Total: ₹1,196.00"
+    ]
+    raw_1196 = "\n".join(lines_1196)
+    res_1196 = OcrService._parse_financial_text(lines_1196, raw_1196, expected_amount=1196)
+    assert res_1196["detected_amount"] == 1196, f"Expected 1196, got {res_1196['detected_amount']}"
+
+
+def test_ocr_realistic_multiple_attendee_formats():
+    """
+    Test realistic OCR text strings for attendee totals:
+    - Paid ₹598
+    - Rs. 598.00
+    - INR 598
+    - Paid ₹897
+    - ₹1,196
+    - ₹1,495
+    - ₹2,990
+    """
+    from app.services.ocr_service import OcrService
+
+    cases = [
+        ("Paid ₹598", 598),
+        ("Rs. 598.00", 598),
+        ("INR 598", 598),
+        ("Paid ₹897", 897),
+        ("₹1,196", 1196),
+        ("₹1,495", 1495),
+        ("₹2,990", 2990),
+    ]
+
+    for text, expected in cases:
+        parsed = OcrService._parse_financial_text([text], text, expected_amount=expected)
+        assert parsed["detected_amount"] == expected, f"Failed for {text!r}: expected {expected}, got {parsed['detected_amount']}"
+
+
+

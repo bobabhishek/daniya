@@ -247,11 +247,11 @@ class OcrService:
         if candidates:
             # Sort candidates by priority (1 is highest)
             candidates.sort(key=lambda x: x[0])
-            # If expected_amount was provided and matches a high-confidence candidate (priority <= 3)
-            # from the receipt, select that candidate from the receipt
+            # If expected_amount was provided and matches any candidate found on the receipt,
+            # select that verified amount from the receipt
             if expected_amount is not None:
                 for prio, val, _ in candidates:
-                    if val == expected_amount and prio <= 3:
+                    if val == expected_amount:
                         detected_amount = val
                         break
             if detected_amount is None:
