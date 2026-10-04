@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: taal-pe-nacho-backend
+    env: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    region: oregon
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: FIREBASE_PROJECT_ID
+        value: dhandiya-hawkz
+      - key: FIREBASE_STORAGE_BUCKET
+        value: dhandiya-hawkz.firebasestorage.app
+      - key: ADMIN_EMAIL
+        value: teamredhawkz@gmail.com
+      - key: ALLOWED_ORIGINS
+        value: '*'
+      - key: FIREBASE_CREDENTIALS_JSON
+        sync: false
