@@ -31,7 +31,8 @@ async def lifespan(app: FastAPI):
         logger.warning("HF_TOKEN is not configured; hosted OCR will reject requests safely until a token is added.")
     
     # Pre-seed sample registrations in development mode only
-    if settings.ENVIRONMENT != "production":
+    # DISABLED: Start with clean database
+    if False and settings.ENVIRONMENT != "production":
         db = get_db()
         from .seed_data import SEED_REGISTRATIONS
         from .services.ticket_service import TicketService
