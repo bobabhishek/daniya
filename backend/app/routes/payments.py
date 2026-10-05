@@ -51,7 +51,7 @@ async def verify_payment_proof(
     Authoritative Three-Way Payment Verification:
     1. EXPECTED AMOUNT: Calculated authoritatively by backend from participants.
     2. USER ENTERED AMOUNT: Submitted by attendee after receipt upload.
-    3. OCR AMOUNT: Extracted via RapidOCR from the uploaded screenshot.
+    3. OCR AMOUNT: Extracted via hosted OCR from the uploaded screenshot.
 
     CRITICAL RULES:
     - ALL THREE MUST MATCH.

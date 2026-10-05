@@ -24,13 +24,11 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing Garba & Dandiya 2026 Backend...")
     init_firebase()
     
-    # Pre-warm RapidOCR engine in memory so user payments never suffer cold-start delay
-    try:
-        from .services.ocr_service import get_ocr_engine
-        get_ocr_engine()
-        logger.info("RapidOCR engine pre-warmed successfully at startup.")
-    except Exception as e:
-        logger.warning(f"Could not pre-warm RapidOCR engine at startup: {e}")
+    # Hosted HF OCR is the production path.
+    if settings.HF_TOKEN:
+        logger.info("Hosted Hugging Face OCR provider configured for production OCR requests.")
+    else:
+        logger.warning("HF_TOKEN is not configured; hosted OCR will reject requests safely until a token is added.")
     
     # Pre-seed sample registrations in development mode only
     if settings.ENVIRONMENT != "production":
@@ -205,7 +203,7 @@ async def health_check():
         "environment": settings.ENVIRONMENT,
         "adminConfigured": bool(settings.ADMIN_EMAIL),
         "adminEmail": settings.ADMIN_EMAIL,
-        "commit": "3c518b0"
+        "commit": "7a35fe1"
     }
 
 

@@ -26,6 +26,29 @@ def clean_memory_db():
     yield
 
 
+def test_production_missing_firebase_raises_clear_error(monkeypatch):
+    """Production must fail closed when Firebase Admin is unavailable rather than silently using local persistence."""
+    from app import firebase
+    from app.config import settings
+
+    original_environment = settings.ENVIRONMENT
+    original_app = firebase._firebase_app
+    original_db = firebase._firestore_db
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production", raising=False)
+    monkeypatch.setattr(firebase, "init_firebase", lambda: None, raising=False)
+    firebase._firebase_app = None
+    firebase._firestore_db = None
+
+    try:
+        with pytest.raises(RuntimeError, match="strictly disabled in production|not connected in production"):
+            firebase.get_db()
+    finally:
+        monkeypatch.setattr(settings, "ENVIRONMENT", original_environment, raising=False)
+        firebase._firebase_app = original_app
+        firebase._firestore_db = original_db
+
+
 def generate_synthetic_receipt_bytes(amount: int, payee: str = "ARPITH MANOHAR", utr: str = "428172938491") -> bytes:
     """Creates a synthetic UPI receipt image containing the given amount and UTR."""
     img = Image.new('RGB', (450, 600), color=(255, 255, 255))
@@ -74,6 +97,38 @@ def test_age_calculation_from_dob():
 
     age_32 = calculate_age_from_dob("05/11/1994")
     assert age_32 >= 31 and age_32 <= 33
+
+
+def test_list_user_registrations_is_exact_to_user_identity(monkeypatch):
+    """Each login should only see the registrations tied to its exact userId or email, not another account's data."""
+    from app.services import registration_service
+    from app.services.registration_service import RegistrationService
+
+    monkeypatch.setattr(registration_service, "get_db", lambda: memory_db)
+
+    memory_db.collection("registrations").document("REG-A").set({
+        "registrationId": "REG-A",
+        "userId": "user-akash",
+        "userEmail": "akash@example.com",
+        "userName": "Akash",
+        "createdAt": "2026-10-01T10:00:00"
+    })
+    memory_db.collection("registrations").document("REG-B").set({
+        "registrationId": "REG-B",
+        "userId": "user-kamath",
+        "userEmail": "kamath@example.com",
+        "userName": "Kamath",
+        "createdAt": "2026-10-02T10:00:00"
+    })
+
+    akash_regs = RegistrationService.list_user_registrations(user_id="user-akash", user_email="akash@example.com")
+    assert [r["registrationId"] for r in akash_regs] == ["REG-A"]
+
+    kamath_regs = RegistrationService.list_user_registrations(user_id="user-kamath", user_email="kamath@example.com")
+    assert [r["registrationId"] for r in kamath_regs] == ["REG-B"]
+
+    mixed_regs = RegistrationService.list_user_registrations(user_id="user-other", user_email="kamath@example.com")
+    assert [r["registrationId"] for r in mixed_regs] == []
 
 
 def test_registration_creation_does_not_issue_tickets():

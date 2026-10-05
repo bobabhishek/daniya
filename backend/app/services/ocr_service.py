@@ -1,15 +1,24 @@
-import os
+import base64
 import io
-import re
 import logging
-from typing import Optional, Dict, Any, List
+import re
+import time
+from typing import Any, Dict, List, Optional
+
+import httpx
 from PIL import Image, ImageEnhance
+
+from ..config import settings
 
 logger = logging.getLogger("dandiya_backend.ocr")
 
+HF_OCR_URL = "https://router.huggingface.co/v1/chat/completions"
+
 _ocr_engine = None
 
+
 def get_ocr_engine():
+    """Legacy local OCR entry point retained only for dev/test fallback, never for production."""
     global _ocr_engine
     if _ocr_engine is None:
         try:
@@ -22,26 +31,99 @@ def get_ocr_engine():
     return _ocr_engine
 
 
+class HuggingFaceHostedOCRProvider:
+    """Hosted OCR provider using the Hugging Face Inference Providers router with HF_TOKEN."""
+
+    @staticmethod
+    def _extract_text_from_response(payload: Dict[str, Any]) -> str:
+        choices = payload.get("choices") or []
+        for choice in choices:
+            message = choice.get("message") or {}
+            content = message.get("content")
+            if isinstance(content, str):
+                return content.strip()
+            if isinstance(content, list):
+                parts: List[str] = []
+                for item in content:
+                    if isinstance(item, dict):
+                        text = item.get("text")
+                        if isinstance(text, str):
+                            parts.append(text)
+                    elif isinstance(item, str):
+                        parts.append(item)
+                combined = "".join(parts).strip()
+                if combined:
+                    return combined
+            if isinstance(message, str):
+                return message.strip()
+        return ""
+
+    @classmethod
+    def extract_text(cls, image_bytes: bytes) -> str:
+        token = (settings.HF_TOKEN or "").strip()
+        if not token:
+            raise ValueError("HF_TOKEN is missing. Hosted OCR is disabled for safety.")
+
+        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+        request_payload = {
+            "model": settings.HF_OCR_MODEL,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "Read the entire receipt image and return the exact visible text. "
+                                "Include the payment total, individual amounts, payee, and UPI/transaction details. "
+                                "Return only raw OCR text with no markdown or explanations."
+                            ),
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_b64}",
+                            },
+                        },
+                    ],
+                }
+            ],
+            "max_tokens": 400,
+            "temperature": 0.1,
+        }
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+
+        timeout = httpx.Timeout(
+            connect=5.0,
+            read=float(settings.HF_OCR_TIMEOUT_SECONDS),
+            write=10.0,
+            pool=10.0,
+        )
+
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(HF_OCR_URL, headers=headers, json=request_payload)
+            response.raise_for_status()
+            payload = response.json()
+
+        text = cls._extract_text_from_response(payload)
+        if not text:
+            logger.warning("HF hosted OCR returned an empty text payload.")
+        return text
+
+
 class OcrService:
     """
     Authoritative OCR Service specialized for Indian UPI Payment Screenshots.
-    Extracts payment amounts, transaction references, and payee signatures.
+    Hosted HF OCR is the production path; local RapidOCR remains a strict dev/test fallback only.
     """
 
-    @classmethod
-    def process_receipt(cls, image_bytes: bytes, expected_amount: Optional[int] = None) -> Dict[str, Any]:
-        """
-        Processes receipt image bytes through RapidOCR and parses financial fields.
-        Returns:
-            {
-                "detected_amount": Optional[int],
-                "confidence": float,
-                "raw_text": str,
-                "upi_reference": Optional[str],
-                "payee_detected": bool,
-                "all_detected_numbers": List[int]
-            }
-        """
+    @staticmethod
+    def _process_receipt_local(image_bytes: bytes, expected_amount: Optional[int] = None) -> Dict[str, Any]:
+        """Local RapidOCR pipeline retained only for development/test fallback and explicit rollback."""
         if not image_bytes:
             return {
                 "detected_amount": None,
@@ -52,29 +134,25 @@ class OcrService:
                 "all_detected_numbers": []
             }
 
-        # Validate that image_bytes can be decompressed and normalized
         try:
             img = Image.open(io.BytesIO(image_bytes))
             if img.mode != "RGB":
                 img = img.convert("RGB")
 
-            # Scale ultra-high-res smartphone screenshots to optimal 1080px for fast CPU inference
-            max_dim = 1080
+            max_dim = 720
             if max(img.width, img.height) > max_dim:
                 scale = max_dim / float(max(img.width, img.height))
                 new_w = max(1, int(img.width * scale))
                 new_h = max(1, int(img.height * scale))
                 img = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
             elif min(img.width, img.height) < 200:
-                # Upscale tiny screenshots/crops so RapidOCR detection model can resolve digits
                 scale = 2.0
                 new_w = int(img.width * scale)
                 new_h = int(img.height * scale)
                 img = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
 
-            # High-speed in-memory JPEG buffer for OCR engine (5-10x faster than PNG compression)
             buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=95)
+            img.save(buf, format="JPEG", quality=90)
             clean_bytes = buf.getvalue()
         except Exception as e:
             logger.warning(f"Image decompression error in OCR: {e}")
@@ -86,7 +164,7 @@ class OcrService:
 
         if engine:
             try:
-                ocr_results, _ = engine(clean_bytes)
+                ocr_results, _ = engine(clean_bytes, use_cls=False)
                 if ocr_results:
                     for item in ocr_results:
                         text = item[1].strip()
@@ -94,8 +172,7 @@ class OcrService:
                         if text:
                             extracted_lines.append(text)
                             scores.append(conf)
-                
-                # If no text detected on first pass, attempt high-contrast enhanced pass
+
                 if not extracted_lines:
                     try:
                         contrast_img = ImageEnhance.Contrast(img).enhance(1.4)
@@ -117,18 +194,125 @@ class OcrService:
 
         raw_text = "\n".join(extracted_lines)
         avg_confidence = (sum(scores) / len(scores)) if scores else 0.0
-
-        # Parse financial fields from raw text lines
-        parsed = cls._parse_financial_text(extracted_lines, raw_text, expected_amount=expected_amount)
+        parsed = OcrService._parse_financial_text(extracted_lines, raw_text, expected_amount=expected_amount)
         parsed["raw_text"] = raw_text
         parsed["confidence"] = round(avg_confidence, 2)
-
         logger.info(
-            f"RapidOCR Finished: detected={parsed.get('detected_amount')}, "
+            f"Local RapidOCR Finished: detected={parsed.get('detected_amount')}, "
             f"expected={expected_amount}, conf={parsed.get('confidence')}, "
             f"numbers={parsed.get('all_detected_numbers')}, raw_length={len(raw_text)}"
         )
-        logger.debug(f"RapidOCR Raw Text:\n{raw_text}")
+        logger.debug(f"Local RapidOCR Raw Text:\n{raw_text}")
+        return parsed
+
+    @classmethod
+    def process_receipt(cls, image_bytes: bytes, expected_amount: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Processes receipt image bytes through the hosted HF OCR provider in production.
+        Local RapidOCR remains available for explicit dev/test fallback only.
+        """
+        if not image_bytes:
+            return {
+                "detected_amount": None,
+                "confidence": 0.0,
+                "raw_text": "",
+                "upi_reference": None,
+                "payee_detected": False,
+                "all_detected_numbers": []
+            }
+
+        t_prepare_start = time.perf_counter()
+        try:
+            img = Image.open(io.BytesIO(image_bytes))
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+
+            max_dim = 1024
+            if max(img.width, img.height) > max_dim:
+                scale = max_dim / float(max(img.width, img.height))
+                new_w = max(1, int(img.width * scale))
+                new_h = max(1, int(img.height * scale))
+                img = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
+            elif min(img.width, img.height) < 200:
+                scale = 2.0
+                new_w = int(img.width * scale)
+                new_h = int(img.height * scale)
+                img = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
+
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=92)
+            clean_bytes = buf.getvalue()
+        except Exception as e:
+            logger.warning(f"Image decompression error in OCR: {e}")
+            clean_bytes = image_bytes
+        t_prepare_ms = (time.perf_counter() - t_prepare_start) * 1000
+        logger.info(f"[OCR] image preparation: {t_prepare_ms:.1f} ms")
+
+        provider = (getattr(settings, "OCR_PROVIDER", "auto") or "auto").strip().lower()
+        if provider == "rapidocr":
+            logger.info("OCR_PROVIDER=rapidocr; using local RapidOCR pipeline.")
+            return cls._process_receipt_local(image_bytes, expected_amount=expected_amount)
+
+        if provider == "auto":
+            provider = "huggingface" if (settings.HF_TOKEN or "").strip() else "rapidocr"
+
+        if provider == "rapidocr":
+            logger.info("OCR_PROVIDER resolved to rapidocr; using local RapidOCR pipeline.")
+            return cls._process_receipt_local(image_bytes, expected_amount=expected_amount)
+
+        token = (settings.HF_TOKEN or "").strip()
+        is_production = (settings.ENVIRONMENT or "").lower() == "production"
+
+        if not token:
+            if settings.HF_OCR_USE_LOCAL_FALLBACK and not is_production:
+                logger.info("HF_TOKEN missing; using local RapidOCR fallback for development/test compatibility.")
+                return cls._process_receipt_local(image_bytes, expected_amount=expected_amount)
+            logger.warning("HF_TOKEN missing. Hosted OCR is disabled; failing closed to protect verification integrity.")
+            return {
+                "detected_amount": None,
+                "confidence": 0.0,
+                "raw_text": "",
+                "upi_reference": None,
+                "payee_detected": False,
+                "all_detected_numbers": []
+            }
+
+        try:
+            t_hf_start = time.perf_counter()
+            raw_text = HuggingFaceHostedOCRProvider.extract_text(clean_bytes)
+            t_hf_ms = (time.perf_counter() - t_hf_start) * 1000
+            logger.info(f"[OCR] HF API request: {t_hf_ms:.1f} ms")
+        except Exception as exc:
+            if settings.HF_OCR_USE_LOCAL_FALLBACK and not is_production:
+                logger.warning(f"Hosted HF OCR failed in dev/test; falling back to local RapidOCR: {exc}")
+                return cls._process_receipt_local(image_bytes, expected_amount=expected_amount)
+            logger.warning(f"Hosted Hugging Face OCR failed safely: {exc}", exc_info=True)
+            return {
+                "detected_amount": None,
+                "confidence": 0.0,
+                "raw_text": "",
+                "upi_reference": None,
+                "payee_detected": False,
+                "all_detected_numbers": []
+            }
+
+        extracted_lines = [line.strip() for line in re.split(r"\r?\n", raw_text) if line.strip()]
+        t_parse_start = time.perf_counter()
+        parsed = cls._parse_financial_text(extracted_lines, raw_text, expected_amount=expected_amount)
+        t_parse_ms = (time.perf_counter() - t_parse_start) * 1000
+        logger.info(f"[OCR] HF response parsing: {t_parse_ms:.1f} ms")
+
+        parsed["raw_text"] = raw_text
+        parsed["confidence"] = 0.98 if raw_text else 0.0
+        t_extract_ms = (time.perf_counter() - t_parse_start) * 1000
+        logger.info(f"[OCR] amount extraction: {t_extract_ms:.1f} ms")
+
+        logger.info(
+            f"Hosted HF OCR Finished: detected={parsed.get('detected_amount')}, "
+            f"expected={expected_amount}, conf={parsed.get('confidence')}, "
+            f"numbers={parsed.get('all_detected_numbers')}, raw_length={len(raw_text)}"
+        )
+        logger.debug(f"Hosted HF OCR Raw Text:\n{raw_text}")
 
         return parsed
 
@@ -191,9 +375,8 @@ class OcrService:
 
         # -------------------------------------------------------------------------
         # Priority 2: Common OCR substitutions / character mistakes for ₹ or decimals
-        # In RapidOCR (PP-OCR), the Indian Rupee symbol ₹ is frequently recognized as
-        # 'B', 'n', 'R', 'F', 'T', 'z', '?', '*', '~', or '¥'.
-        # Handles: B299.00, n299, ?299, 299.00, 1,299.00, 1196.00
+        # Common receipt OCR output can include values like B299.00, n299, ?299, 299.00,
+        # 1,299.00, or 1196.00 when the currency marker is imperfectly recognized.
         # -------------------------------------------------------------------------
         p2_patterns = [
             r"(?:[?*#~¥£$€]|\b[bBnNrRfFtTzZ])\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)",

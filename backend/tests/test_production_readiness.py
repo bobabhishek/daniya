@@ -52,6 +52,23 @@ def test_admin_account_permitted():
     assert "totalRegistrations" in res.json()
 
 
+def test_ocr_provider_toggle_prefers_selected_backend(monkeypatch):
+    """Hosted HF remains the active OCR provider and ignores legacy local-only toggles."""
+    from app.config import settings
+    from app.services import ocr_service
+
+    monkeypatch.setattr(settings, "OCR_PROVIDER", "legacy_local", raising=False)
+    monkeypatch.setattr(settings, "HF_TOKEN", "token123", raising=False)
+    monkeypatch.setattr(ocr_service.HuggingFaceHostedOCRProvider, "extract_text", staticmethod(lambda image_bytes: "Paid Rs. 299"), raising=False)
+
+    result = ocr_service.OcrService.process_receipt(b"dummy", expected_amount=299)
+    assert result["detected_amount"] == 299
+
+    monkeypatch.setattr(settings, "OCR_PROVIDER", "huggingface", raising=False)
+    result = ocr_service.OcrService.process_receipt(b"dummy", expected_amount=299)
+    assert result["detected_amount"] == 299
+
+
 def test_ocr_service_process_receipt():
     """Verify OcrService.process_receipt API contract and amount extraction."""
     import io
@@ -330,6 +347,70 @@ def test_ocr_realistic_multiple_attendee_formats():
     for text, expected in cases:
         parsed = OcrService._parse_financial_text([text], text, expected_amount=expected)
         assert parsed["detected_amount"] == expected, f"Failed for {text!r}: expected {expected}, got {parsed['detected_amount']}"
+
+
+def test_hf_ocr_provider_success_and_multiple_attendee_total_selection(monkeypatch):
+    """Hosted HF OCR should read a receipt and preserve the total amount selection rule."""
+    from unittest.mock import MagicMock
+    from app.services.ocr_service import OcrService
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "HF_TOKEN", "hf_test_token", raising=False)
+
+    mock_response = MagicMock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = {
+        "choices": [{
+            "message": {
+                "content": "Pass 1: 299\nPass 2: 299\nTotal Paid: ₹598\nUPI Ref: 123456789012"
+            }
+        }]
+    }
+
+    with patch("app.services.ocr_service.httpx.Client.post", return_value=mock_response) as mock_post:
+        result = OcrService.process_receipt(b"fake-bytes", expected_amount=598)
+
+    assert result["detected_amount"] == 598
+    assert result["upi_reference"] == "123456789012"
+    assert mock_post.call_count == 1
+
+
+def test_hf_ocr_provider_timeout_and_error_are_rejected_safely(monkeypatch):
+    """Hosted OCR errors and timeouts must fail closed without trusting user-entered amounts."""
+    from unittest.mock import MagicMock
+    from app.config import settings
+    from app.services.ocr_service import OcrService
+    import httpx
+
+    monkeypatch.setattr(settings, "HF_TOKEN", "hf_test_token", raising=False)
+
+    with patch("app.services.ocr_service.httpx.Client.post", side_effect=httpx.TimeoutException("timed out")):
+        result = OcrService.process_receipt(b"fake-bytes", expected_amount=299)
+        assert result["detected_amount"] is None
+        assert result["confidence"] == 0.0
+
+    mock_response = MagicMock()
+    mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "bad gateway",
+        request=MagicMock(),
+        response=MagicMock(status_code=502),
+    )
+    with patch("app.services.ocr_service.httpx.Client.post", return_value=mock_response):
+        result = OcrService.process_receipt(b"fake-bytes", expected_amount=299)
+        assert result["detected_amount"] is None
+        assert result["confidence"] == 0.0
+
+
+def test_hf_ocr_requires_token_for_provider(monkeypatch):
+    """Hosted OCR must fail closed when the server-side token is missing and fallback is disabled."""
+    from app.config import settings
+    from app.services.ocr_service import OcrService
+
+    monkeypatch.setattr(settings, "HF_TOKEN", "", raising=False)
+    monkeypatch.setattr(settings, "HF_OCR_USE_LOCAL_FALLBACK", False, raising=False)
+    result = OcrService.process_receipt(b"fake-bytes", expected_amount=299)
+    assert result["detected_amount"] is None
+    assert result["confidence"] == 0.0
 
 
 

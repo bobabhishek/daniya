@@ -13,7 +13,6 @@ function getStoredPasses(uid, email) {
     const keys = [];
     if (uid) keys.push(`${PASSES_STORAGE_PREFIX}${uid}`);
     if (email) keys.push(`${PASSES_STORAGE_PREFIX}${email.trim().toLowerCase()}`);
-    keys.push(`${PASSES_STORAGE_PREFIX}global`);
 
     for (const k of keys) {
       const raw = window.localStorage.getItem(k);
@@ -36,7 +35,7 @@ function saveStoredPasses(uid, email, passesList) {
     const jsonStr = JSON.stringify(passesList);
     if (uid) window.localStorage.setItem(`${PASSES_STORAGE_PREFIX}${uid}`, jsonStr);
     if (email) window.localStorage.setItem(`${PASSES_STORAGE_PREFIX}${email.trim().toLowerCase()}`, jsonStr);
-    window.localStorage.setItem(`${PASSES_STORAGE_PREFIX}global`, jsonStr);
+    // Do not store a shared global cache; each login must only read its own passes.
   } catch (e) {
     console.warn('Error persisting passes to localStorage:', e);
   }

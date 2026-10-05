@@ -45,7 +45,7 @@ class PaymentService:
         Executes strict three-way verification:
         1. EXPECTED AMOUNT (Authoritative from Step 1 / backend registration)
         2. USER ENTERED AMOUNT (Entered manually after receipt upload)
-        3. OCR AMOUNT (Extracted by RapidOCR from uploaded screenshot)
+        3. OCR AMOUNT (Extracted from the uploaded screenshot via hosted OCR)
         """
         import time
         t_start = time.perf_counter()
@@ -175,7 +175,17 @@ class PaymentService:
                 "receiptPath": receipt_path,
                 "ticketIds": ticket_ids,
                 "tickets": [t if isinstance(t, dict) else t.model_dump() for t in full_tickets],
-                "message": "Payment verified successfully! Your tickets have been issued."
+                "message": "Payment verified successfully! Your tickets have been issued.",
+                "details": {
+                    "timings": {
+                        "receipt_handling_ms": round(t_receipt_ms, 1),
+                        "processing_ms": round(t_ocr_ms, 1),
+                        "validation_ms": round(t_val_ms, 1),
+                        "firestore_ms": round(t_firestore_ms, 1),
+                        "ticket_generation_ms": round(t_ticket_ms, 1),
+                        "total_ms": round(t_total_ms, 1)
+                    }
+                }
             }
 
         # =========================================================================
@@ -239,5 +249,15 @@ class PaymentService:
             "registrationStatus": "PENDING",
             "ticketIds": [],
             "message": "Payment verification failed. Payment amount could not be verified.",
-            "mismatchReason": mismatch_reason
+            "mismatchReason": mismatch_reason,
+            "details": {
+                "timings": {
+                    "receipt_handling_ms": round(t_receipt_ms, 1),
+                    "processing_ms": round(t_ocr_ms, 1),
+                    "validation_ms": round(t_val_ms, 1),
+                    "firestore_ms": round(t_firestore_ms, 1),
+                    "ticket_generation_ms": 0.0,
+                    "total_ms": round(t_total_ms, 1)
+                }
+            }
         }

@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     # Payment simulation mode
     MOCK_PAYMENT_ENABLED: bool = True
 
+    # OCR provider selection: use "auto" in dev/test, "huggingface" for production, and "rapidocr" only for explicit local fallback.
+    OCR_PROVIDER: str = "auto"
+
+    # Hosted OCR settings
+    HF_TOKEN: str = ""
+    HF_OCR_MODEL: str = "google/gemma-3-4b-it"
+    HF_OCR_TIMEOUT_SECONDS: int = 15
+    HF_OCR_USE_LOCAL_FALLBACK: bool = True
+
     @property
     def cors_origins(self) -> List[str]:
         raw = self.ALLOWED_ORIGINS or ""

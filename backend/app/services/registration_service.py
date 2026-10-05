@@ -197,31 +197,30 @@ class RegistrationService:
             db = get_db()
             results: Dict[str, Dict[str, Any]] = {}
             user_email_lower = (user_email or "").strip().lower()
+            user_id_value = (user_id or "").strip()
 
             for doc in db.collection("registrations").stream():
                 data = doc.to_dict()
                 if not data:
                     continue
                 reg_id = data.get("registrationId", "")
-                stored_uid = data.get("userId") or ""
+                stored_uid = (data.get("userId") or "").strip()
                 stored_email = (data.get("userEmail") or "").strip().lower()
-                stored_name = (data.get("userName") or "").strip().lower()
 
-                uid_match = stored_uid and stored_uid == user_id
-                email_match = user_email_lower and (
-                    stored_email == user_email_lower or
-                    (user_email_lower in stored_email and "@" in stored_email)
-                )
-                # Support linked test identities (e.g. kamath / bobabhishek18@gmail.com)
-                alias_match = False
-                if user_email_lower and ("bobabhishek" in user_email_lower or "kamath" in user_email_lower):
-                    if "bobabhishek" in stored_email or "kamath" in stored_email or "kamath" in stored_name:
-                        alias_match = True
+                uid_match = bool(user_id_value) and stored_uid == user_id_value
+                email_match = bool(user_email_lower) and stored_email == user_email_lower
 
-                if uid_match or email_match or alias_match:
+                if uid_match:
+                    results[reg_id] = data
+                    continue
+
+                # If a userId is present, do not allow a different email to pull in another account's records.
+                if user_id_value:
+                    continue
+
+                if email_match:
                     results[reg_id] = data
 
-            # Sort descending by createdAt
             sorted_list = sorted(
                 list(results.values()),
                 key=lambda x: x.get("createdAt", ""),
