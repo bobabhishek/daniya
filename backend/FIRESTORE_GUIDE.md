@@ -13,6 +13,7 @@ backend/data/local_firestore_db.json
 ## How to Access the Database
 
 ### **Option 1: Direct Python Query** (Recommended)
+
 ```python
 from app.firebase import get_db
 
@@ -26,13 +27,17 @@ for doc in registrations:
 ```
 
 ### **Option 2: View Raw JSON File**
+
 Open directly:
+
 ```
 backend/data/local_firestore_db.json
 ```
 
 ### **Option 3: Query via Admin API**
+
 If backend is running:
+
 ```bash
 curl http://localhost:8000/admin/export/master-excel \
   -H "Authorization: Bearer YOUR_TOKEN"
@@ -42,12 +47,12 @@ curl http://localhost:8000/admin/export/master-excel \
 
 ## Database Collections
 
-| Collection | Count | Purpose |
-|-----------|-------|---------|
-| **registrations** | 45 | Master registration records (KD-000001, KD-000002, etc.) |
-| **tickets** | 62 | Generated ticket records with QR codes |
-| **payments** | 0 | Payment transaction records |
-| **participants** | 0 | Individual participant details |
+| Collection        | Count | Purpose                                                  |
+| ----------------- | ----- | -------------------------------------------------------- |
+| **registrations** | 45    | Master registration records (KD-000001, KD-000002, etc.) |
+| **tickets**       | 62    | Generated ticket records with QR codes                   |
+| **payments**      | 0     | Payment transaction records                              |
+| **participants**  | 0     | Individual participant details                           |
 
 ---
 
@@ -107,6 +112,7 @@ curl http://localhost:8000/admin/export/master-excel \
 ## Python Utilities to Query Data
 
 ### **List All Registrations**
+
 ```python
 from app.firebase import get_db
 db = get_db()
@@ -115,12 +121,14 @@ print(f"Total: {len(regs)}")
 ```
 
 ### **Get Specific Registration**
+
 ```python
 reg = db.collection('registrations').document('KD-000001').get()
 print(reg.to_dict())
 ```
 
 ### **Filter by Payment Status**
+
 ```python
 verified = []
 for doc in db.collection('registrations').stream():
@@ -131,6 +139,7 @@ print(f"Verified: {len(verified)}")
 ```
 
 ### **Export to JSON**
+
 ```python
 import json
 data = {}
@@ -155,7 +164,7 @@ memory_db.clear()
 ## Current Database Stats
 
 - **Registrations**: 45
-- **Tickets**: 62  
+- **Tickets**: 62
 - **Payments**: 0
 - **Participants**: 0
 
