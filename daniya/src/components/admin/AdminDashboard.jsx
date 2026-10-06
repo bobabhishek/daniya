@@ -255,6 +255,8 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
         onExportExcel={handleExportMasterExcel}
         isExporting={isExporting}
         onRefreshData={refreshAdminData}
+        onEditSelected={selectedRecord ? () => setSelectedRecord(selectedRecord) : null}
+        selectedRecordId={selectedRecord?.registrationId || null}
       />
 
       {/* Main Content Container */}

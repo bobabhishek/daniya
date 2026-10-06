@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   ShieldCheck, Crown, Users, DollarSign, Ticket, FileSpreadsheet, 
-  Eye, LogOut, RefreshCw, Sparkles, Menu, X, ArrowUpRight, Download, Loader2
+  Eye, LogOut, RefreshCw, Sparkles, Menu, X, ArrowUpRight, Download, Loader2, PencilLine
 } from 'lucide-react';
 import { EVENT_CONFIG } from '../../config/eventConfig';
 import { useAuth } from '../../context/AuthContext';
@@ -10,7 +10,9 @@ export default function AdminNavbar({
   onOpenPreview,
   onExportExcel,
   isExporting = false,
-  onRefreshData
+  onRefreshData,
+  onEditSelected,
+  selectedRecordId = null
 }) {
   const { user, logout } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -63,6 +65,20 @@ export default function AdminNavbar({
                 title="Refresh Live Registrations"
               >
                 <RefreshCw className="w-4 h-4" />
+              </button>
+            )}
+
+            {/* Edit selected registration button */}
+            {onEditSelected && (
+              <button
+                type="button"
+                onClick={onEditSelected}
+                disabled={!selectedRecordId}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-amber-200 hover:text-white bg-amber-950/60 hover:bg-amber-900/70 border border-amber-600/50 transition-all shadow-xs disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                title={selectedRecordId ? `Edit selected registration ${selectedRecordId}` : 'Select a registration row first'}
+              >
+                <PencilLine className="w-3.5 h-3.5 text-amber-300" />
+                <span>{selectedRecordId ? `Edit ${selectedRecordId}` : 'Edit Selected'}</span>
               </button>
             )}
 
@@ -147,6 +163,21 @@ export default function AdminNavbar({
               <span className="block text-xs font-bold text-amber-300">Organizer Admin</span>
               <span className="block text-[11px] text-stone-400">teamredhawkz@gmail.com</span>
             </div>
+
+            {onEditSelected && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  if (onEditSelected) onEditSelected();
+                }}
+                disabled={!selectedRecordId}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold text-amber-300 bg-amber-950/30 border border-amber-800/40 disabled:opacity-40"
+              >
+                <PencilLine className="w-4 h-4" />
+                <span>{selectedRecordId ? `Edit ${selectedRecordId}` : 'Edit Selected'}</span>
+              </button>
+            )}
 
             {onExportExcel && (
               <button

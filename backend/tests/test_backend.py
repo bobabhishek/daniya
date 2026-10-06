@@ -77,6 +77,9 @@ def test_health_check():
     data = response.json()
     assert data["status"] == "healthy"
     assert data["adminEmail"] == "teamredhawkz@gmail.com"
+    assert data["databaseSource"] in {"firestore", "local-memory-fallback"}
+    assert isinstance(data.get("registrationCount"), int)
+    assert isinstance(data.get("ticketCount"), int)
 
 
 def test_id_generation():

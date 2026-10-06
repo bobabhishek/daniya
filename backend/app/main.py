@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from .config import settings
-from .firebase import init_firebase, get_db
+from .firebase import init_firebase, get_db, _firestore_db
 from .routes import registrations, payments, users, admin, tickets, auth
 
 # Setup logging
@@ -199,11 +199,23 @@ async def root():
 @app.get("/health", tags=["Health"])
 @app.get("/api/health", tags=["Health"])
 async def health_check():
+    db = get_db()
+    db_source = "firestore" if _firestore_db is not None else "local-memory-fallback"
+    try:
+        registration_count = len(list(db.collection("registrations").stream()))
+        ticket_count = len(list(db.collection("tickets").stream()))
+    except Exception:
+        registration_count = 0
+        ticket_count = 0
+
     return {
         "status": "healthy",
         "environment": settings.ENVIRONMENT,
         "adminConfigured": bool(settings.ADMIN_EMAIL),
         "adminEmail": settings.ADMIN_EMAIL,
+        "databaseSource": db_source,
+        "registrationCount": registration_count,
+        "ticketCount": ticket_count,
         "commit": "7a35fe1"
     }
 
