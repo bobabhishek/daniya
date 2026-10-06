@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, status, Query, Response
 from ..models.registration import RegistrationRecord, AdminRegistrationUpdateRequest
 from ..models.ticket import TicketRecord
 from ..services.registration_service import RegistrationService
@@ -11,6 +11,182 @@ from ..config import settings
 from ..firebase import get_db
 
 router = APIRouter(prefix="/api/admin", tags=["Admin Portal"])
+
+ALLOWED_DB_COLLECTIONS = {
+    "registrations",
+    "tickets",
+    "payments",
+    "receipts",
+    "participants",
+    "counters",
+}
+
+PROTECTED_DB_DOCUMENTS = {
+    "counters": {"registration_sequence"}
+}
+
+
+def _normalize_collection_name(collection_name: str) -> str:
+    if not collection_name or not isinstance(collection_name, str):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A valid Firestore collection name is required."
+        )
+
+    normalized = collection_name.strip().lower()
+    if normalized not in ALLOWED_DB_COLLECTIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Collection '{collection_name}' is not allowed for admin database management."
+        )
+    return normalized
+
+
+@router.get("/db/collections")
+async def list_database_collections(
+    admin_user: Dict[str, Any] = Depends(get_current_admin)
+):
+    """Return the safe collection list for the protected admin Firestore editor."""
+    return sorted(ALLOWED_DB_COLLECTIONS)
+
+
+@router.get("/db/{collection}")
+async def list_database_documents(
+    collection: str,
+    admin_user: Dict[str, Any] = Depends(get_current_admin)
+):
+    """List every document in an approved collection."""
+    collection_name = _normalize_collection_name(collection)
+    db = get_db()
+    docs = []
+    for document in db.collection(collection_name).stream():
+        if document.exists:
+            docs.append({
+                "id": document.id,
+                "data": document.to_dict() or {}
+            })
+    return docs
+
+
+@router.get("/db/{collection}/{document_id}")
+async def get_database_document(
+    collection: str,
+    document_id: str,
+    admin_user: Dict[str, Any] = Depends(get_current_admin)
+):
+    """Return a single document from the approved Firestore collection."""
+    collection_name = _normalize_collection_name(collection)
+    db = get_db()
+    document = db.collection(collection_name).document(document_id).get()
+    if not document.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document '{document_id}' does not exist in '{collection_name}'."
+        )
+    return document.to_dict() or {}
+
+
+@router.post("/db/{collection}", status_code=status.HTTP_201_CREATED)
+async def create_database_document(
+    collection: str,
+    payload: Dict[str, Any] = Body(...),
+    admin_user: Dict[str, Any] = Depends(get_current_admin)
+):
+    """Create a new document within an approved Firestore collection."""
+    collection_name = _normalize_collection_name(collection)
+    document_id = str(payload.get("documentId") or payload.get("id") or '').strip()
+    if not document_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A documentId is required when creating a database record."
+        )
+
+    if collection_name in PROTECTED_DB_DOCUMENTS and document_id in PROTECTED_DB_DOCUMENTS[collection_name]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Document '{document_id}' in '{collection_name}' is protected and cannot be created or modified via the admin database editor."
+        )
+
+    data = payload.get("data", payload)
+    if not isinstance(data, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Database document data must be a JSON object."
+        )
+
+    db = get_db()
+    ref = db.collection(collection_name).document(document_id)
+    if ref.get().exists:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Document '{document_id}' already exists in '{collection_name}'."
+        )
+
+    ref.set(data)
+    return data
+
+
+@router.patch("/db/{collection}/{document_id}")
+async def update_database_document(
+    collection: str,
+    document_id: str,
+    payload: Dict[str, Any] = Body(...),
+    admin_user: Dict[str, Any] = Depends(get_current_admin)
+):
+    """Update an approved Firestore document with optional replace semantics and protected counter guardrails."""
+    collection_name = _normalize_collection_name(collection)
+    if collection_name in PROTECTED_DB_DOCUMENTS and document_id in PROTECTED_DB_DOCUMENTS[collection_name]:
+        if not bool(payload.get("confirmCounterOverride")):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="The registration_sequence counter is protected. Override is required to edit this document."
+            )
+
+    data = payload.get("data", payload)
+    if not isinstance(data, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Database document data must be a JSON object."
+        )
+
+    db = get_db()
+    ref = db.collection(collection_name).document(document_id)
+    current = ref.get()
+    if not current.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document '{document_id}' does not exist in '{collection_name}'."
+        )
+
+    next_data = data if payload.get("replace", True) else {**(current.to_dict() or {}), **data}
+    ref.set(next_data)
+    return next_data
+
+
+@router.delete("/db/{collection}/{document_id}")
+async def delete_database_document(
+    collection: str,
+    document_id: str,
+    admin_user: Dict[str, Any] = Depends(get_current_admin)
+):
+    """Delete a single Firestore document from an approved collection while protecting critical counters."""
+    collection_name = _normalize_collection_name(collection)
+    if collection_name in PROTECTED_DB_DOCUMENTS and document_id in PROTECTED_DB_DOCUMENTS[collection_name]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Document '{document_id}' in '{collection_name}' is protected and cannot be deleted from the admin database editor."
+        )
+
+    db = get_db()
+    ref = db.collection(collection_name).document(document_id)
+    if not ref.get().exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document '{document_id}' does not exist in '{collection_name}'."
+        )
+
+    ref.delete()
+    return {"deleted": True, "collection": collection_name, "id": document_id}
 
 
 @router.get("/stats")

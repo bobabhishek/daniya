@@ -5,9 +5,9 @@ import {
   CheckCircle2, Clock, AlertTriangle, ChevronRight, Sparkles, LogOut,
   Loader2, FileCheck, ShieldAlert
 } from 'lucide-react';
-import RegistrationRecordModal from './RegistrationRecordModal';
 import TicketPreviewModal from './TicketPreviewModal';
 import AdminReceiptViewerModal from './AdminReceiptViewerModal';
+import DatabaseManagementModal from './DatabaseManagementModal';
 import AdminNavbar from '../common/AdminNavbar';
 import { EVENT_CONFIG } from '../../config/eventConfig';
 import { useAuth } from '../../context/AuthContext';
@@ -25,9 +25,9 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
   const [sortBy, setSortBy] = useState('NEWEST'); // 'NEWEST' | 'OLDEST' | 'AMOUNT_DESC' | 'AMOUNT_ASC'
 
   // Modal inspection states
-  const [selectedRecord, setSelectedRecord] = useState(null);
   const [ticketPreviewRecord, setTicketPreviewRecord] = useState(null);
   const [viewingReceiptRecord, setViewingReceiptRecord] = useState(null);
+  const [isDatabaseEditorOpen, setIsDatabaseEditorOpen] = useState(false);
 
   React.useEffect(() => {
     let active = true;
@@ -252,11 +252,10 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
       {/* Dedicated Organizer / Admin Navigation Bar */}
       <AdminNavbar
         onOpenPreview={onBackToSite}
+        onEditDatabase={() => setIsDatabaseEditorOpen(true)}
         onExportExcel={handleExportMasterExcel}
         isExporting={isExporting}
         onRefreshData={refreshAdminData}
-        onEditSelected={selectedRecord ? () => setSelectedRecord(selectedRecord) : null}
-        selectedRecordId={selectedRecord?.registrationId || null}
       />
 
       {/* Main Content Container */}
@@ -469,7 +468,15 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
                 Automated Dynamic Calculations
               </div>
 
-              {/* PRIMARY DOWNLOAD MASTER EXCEL BUTTON */}
+              <button
+                type="button"
+                onClick={() => setIsDatabaseEditorOpen(true)}
+                className="px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-extrabold text-amber-900 bg-gradient-to-r from-amber-200 via-yellow-200 to-amber-300 hover:from-amber-300 hover:to-yellow-300 shadow-md hover:shadow-lg active:scale-95 transition-all flex items-center gap-2 border border-amber-400/60 cursor-pointer"
+                title="Open the admin database management editor"
+              >
+                <span>EDIT DATABASE</span>
+              </button>
+
               <button
                 type="button"
                 onClick={handleExportMasterExcel}
@@ -508,7 +515,6 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
                   <th className="py-3.5 px-2 whitespace-nowrap">Uploaded Time</th>
                   <th className="py-3.5 px-3 text-center">Receipt</th>
                   <th className="py-3.5 px-2 text-center">Passes</th>
-                  <th className="py-3.5 px-2 text-center">Dossier</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
@@ -623,19 +629,6 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
                       </button>
                     </td>
 
-                    {/* Audit / Registration Record Button */}
-                    <td className="py-3.5 px-2 text-center">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRecord(row)}
-                        className="px-2.5 py-1 rounded-lg text-xs font-bold text-stone-700 bg-stone-100 hover:bg-stone-200 hover:text-royal-crimson transition-colors inline-flex items-center gap-1"
-                        title="Open Complete Registration Audit Dossier"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Dossier</span>
-                      </button>
-                    </td>
-
                   </tr>
                 ))}
               </tbody>
@@ -654,23 +647,11 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
       </main>
 
       {/* Modals */}
-      {selectedRecord && (
-        <RegistrationRecordModal
-          record={selectedRecord}
-          onClose={() => setSelectedRecord(null)}
-          onOpenTickets={(r) => {
-            setSelectedRecord(null);
-            setTicketPreviewRecord(r);
-          }}
-          onViewReceipt={(r) => {
-            setViewingReceiptRecord(r);
-          }}
-          onRecordUpdated={(updated) => {
-            setRegistrations(prev => prev.map(r => r.registrationId === updated.registrationId ? { ...r, ...updated } : r));
-            setSelectedRecord(updated);
-          }}
-        />
-      )}
+      <DatabaseManagementModal
+        isOpen={isDatabaseEditorOpen}
+        onClose={() => setIsDatabaseEditorOpen(false)}
+        onRefreshDashboard={refreshAdminData}
+      />
 
       {ticketPreviewRecord && (
         <TicketPreviewModal

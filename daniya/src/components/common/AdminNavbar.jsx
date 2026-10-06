@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 
 export default function AdminNavbar({
   onOpenPreview,
+  onEditDatabase,
   onExportExcel,
   isExporting = false,
   onRefreshData,
@@ -79,6 +80,19 @@ export default function AdminNavbar({
               >
                 <PencilLine className="w-3.5 h-3.5 text-amber-300" />
                 <span>{selectedRecordId ? `Edit ${selectedRecordId}` : 'Edit Selected'}</span>
+              </button>
+            )}
+
+            {/* Edit Database CTA Button */}
+            {onEditDatabase && (
+              <button
+                type="button"
+                onClick={onEditDatabase}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-amber-200 hover:text-white bg-amber-950/60 hover:bg-amber-900/70 border border-amber-600/50 transition-all shadow-xs cursor-pointer whitespace-nowrap"
+                title="Open the admin database management console"
+              >
+                <PencilLine className="w-3.5 h-3.5 text-amber-300" />
+                <span>Edit Database</span>
               </button>
             )}
 
@@ -176,6 +190,20 @@ export default function AdminNavbar({
               >
                 <PencilLine className="w-4 h-4" />
                 <span>{selectedRecordId ? `Edit ${selectedRecordId}` : 'Edit Selected'}</span>
+              </button>
+            )}
+
+            {onEditDatabase && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  onEditDatabase();
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold text-amber-300 bg-amber-950/30 border border-amber-800/40"
+              >
+                <PencilLine className="w-4 h-4" />
+                <span>Edit Database</span>
               </button>
             )}
 

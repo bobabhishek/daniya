@@ -97,6 +97,26 @@ export const api = {
   verifyUserRole: () => request('/api/auth/verify-role'),
   getSessionInfo: () => request('/api/auth/session'),
 
+  // Admin Database Management
+  getDatabaseCollections: () => request('/api/admin/db/collections'),
+  getDatabaseCollection: (collection) => request(`/api/admin/db/${encodeURIComponent(collection)}`),
+  getDatabaseDocument: (collection, documentId) => request(`/api/admin/db/${encodeURIComponent(collection)}/${encodeURIComponent(documentId)}`),
+  createDatabaseDocument: (collection, documentId, data = {}) => request(`/api/admin/db/${encodeURIComponent(collection)}`, {
+    method: 'POST',
+    body: JSON.stringify({ documentId, data })
+  }),
+  updateDatabaseDocument: (collection, documentId, data = {}, options = {}) => request(`/api/admin/db/${encodeURIComponent(collection)}/${encodeURIComponent(documentId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      data,
+      replace: true,
+      confirmCounterOverride: Boolean(options.confirmCounterOverride)
+    })
+  }),
+  deleteDatabaseDocument: (collection, documentId) => request(`/api/admin/db/${encodeURIComponent(collection)}/${encodeURIComponent(documentId)}`, {
+    method: 'DELETE'
+  }),
+
   // Registrations (Step 1 -> Creates master pending record with backend expectedAmount)
   createRegistration: async (participants, paymentMethod = 'UPI (Official QR)') => {
     return await request('/api/registrations', {

@@ -244,6 +244,121 @@ def test_admin_can_update_registration_phone_number_in_database():
     assert db_record.json()["participants"][0]["phoneNumber"] == "9999999999"
 
 
+def test_admin_database_crud_and_field_management():
+    """Admin can list, create, edit, and delete application documents through the protected backend API."""
+    list_response = client.get("/api/admin/db/collections", headers={"Authorization": f"Bearer {ADMIN_TOKEN}"})
+    assert list_response.status_code == 200
+    collections = list_response.json()
+    assert "registrations" in collections
+    assert "tickets" in collections
+    assert "receipts" in collections
+    assert "counters" in collections
+
+    create_response = client.post(
+        "/api/admin/db/tickets",
+        json={
+            "documentId": "DB-TICKET-001",
+            "data": {"ticketId": "DB-TICKET-001", "participantName": "Asha", "status": "ACTIVE"}
+        },
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["ticketId"] == "DB-TICKET-001"
+
+    update_response = client.patch(
+        "/api/admin/db/tickets/DB-TICKET-001",
+        json={"data": {"ticketId": "DB-TICKET-001", "participantName": "Rahul", "status": "ACTIVE", "mobileNumber": "9999999999"}},
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+    )
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["participantName"] == "Rahul"
+    assert updated["mobileNumber"] == "9999999999"
+
+    rename_response = client.patch(
+        "/api/admin/db/tickets/DB-TICKET-001",
+        json={"data": {"ticketId": "DB-TICKET-001", "participantName": "Rahul", "status": "ACTIVE", "mobileNumber": "9999999999", "phone": "9876543210"}},
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+    )
+    assert rename_response.status_code == 200
+    assert "phone" in rename_response.json()
+
+    delete_response = client.delete(
+        "/api/admin/db/tickets/DB-TICKET-001",
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+    )
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted"] is True
+
+
+def test_admin_database_routes_are_protected():
+    """Non-admin and unauthenticated requests must be blocked by the backend authorization layer."""
+    response = client.post(
+        "/api/admin/db/registrations",
+        json={"documentId": "KD-010001", "data": {"registrationId": "KD-010001"}},
+        headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
+    )
+    assert response.status_code == 403
+
+    unauth = client.post(
+        "/api/admin/db/registrations",
+        json={"documentId": "KD-010002", "data": {"registrationId": "KD-010002"}}
+    )
+    assert unauth.status_code == 401
+
+
+def test_deleting_registration_does_not_reset_registration_sequence_counter():
+    """Deleting a registration must not rollback or decrement the monotonic registration sequence counter."""
+    memory_db.collection("counters").document("registration_sequence").set({"current": 9}, merge=True)
+    memory_db.collection("registrations").document("KD-000009").set({"registrationId": "KD-000009", "count": 1})
+
+    response = client.delete(
+        "/api/admin/db/registrations/KD-000009",
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+    )
+    assert response.status_code == 200
+
+    counter = memory_db.collection("counters").document("registration_sequence").get().to_dict()
+    assert counter["current"] == 9
+
+
+def test_admin_database_uses_firestore_as_source_of_truth_for_excel_data():
+    """The Excel export should reflect the latest Firestore state rather than stale frontend memory."""
+    memory_db.collection("registrations").document("KD-000101").set({
+        "registrationId": "KD-000101",
+        "count": 2,
+        "participantsSummary": "Asha, Rahul",
+        "amount": 598,
+        "paymentStatus": "PAID",
+        "verificationStatus": "VERIFIED",
+        "participants": [{"name": "Asha", "phoneNumber": "9999999999"}, {"name": "Rahul", "phoneNumber": "8888888888"}],
+        "createdAt": "2026-10-07T12:00:00"
+    })
+
+    from app.services.excel_export_service import ExcelExportService
+    excel_bytes = ExcelExportService.generate_master_excel(
+        [memory_db.collection("registrations").document("KD-000101").get().to_dict()],
+        base_url="http://localhost:5173"
+    )
+    assert isinstance(excel_bytes, (bytes, bytearray))
+    assert len(excel_bytes) > 1000
+
+
+def test_empty_database_keeps_zero_dashboard_stats():
+    """The empty production database must resolve to zeroes without any seeding or dummy records."""
+    stats = memory_db.collection("registrations").stream()
+    assert sum(1 for _ in stats) == 0
+
+    from app.services.registration_service import RegistrationService
+    dashboard = RegistrationService.calculate_admin_stats()
+    assert dashboard["totalRegistrations"] == 0
+    assert dashboard["totalParticipants"] == 0
+    assert dashboard["totalRevenue"] == 0
+    assert dashboard["paidCount"] == 0
+    assert dashboard["pendingCount"] == 0
+
+
 def test_three_way_amount_match_success():
     """
     TEST THREE-WAY MATCH (SUCCESS):
