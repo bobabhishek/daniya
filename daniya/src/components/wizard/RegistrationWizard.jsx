@@ -13,6 +13,17 @@ import { usePasses } from '../../context/PassesContext';
 import { formatToIndianDate, formatCurrentIndianDateTime } from '../../utils/indianDateUtils';
 import api from '../../services/api';
 
+const normalizePhoneNumber = (value = '') => (value || '').replace(/\D/g, '').slice(0, 10);
+const isValidIndianPhoneNumber = (value = '') => {
+  const digits = normalizePhoneNumber(value);
+  return /^\d{10}$/.test(digits) && /^[6789]/.test(digits);
+};
+
+const reindexParticipants = (list = []) => list.map((participant, index) => ({
+  ...participant,
+  participantNumber: index + 1
+}));
+
 export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin, onOpenAuth }) {
   const { user } = useAuth();
   const { addVerifiedRegistration } = usePasses();
@@ -23,6 +34,7 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
       participantNumber: 1,
       name: '', 
       dob: '', 
+      phoneNumber: '',
       age: '', 
       idProofUrl: '', 
       idProofName: '', 
@@ -40,27 +52,26 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
   // Participant management actions (Descending order: newest added participant is placed on top)
   const handleAddParticipant = () => {
     const nextId = `p${Date.now()}`;
-    const highestNumber = participants.reduce((max, p) => Math.max(max, p.participantNumber || 1), 0);
-    const nextNum = highestNumber + 1;
-    setParticipants(prev => [
+    setParticipants(prev => reindexParticipants([
       { 
         id: nextId, 
-        participantNumber: nextNum,
+        participantNumber: 1,
         name: '', 
         dob: '', 
+        phoneNumber: '',
         age: '', 
         idProofUrl: '', 
         idProofName: '', 
         idProofType: 'Aadhaar Card (with DOB)' 
       },
       ...prev
-    ]);
+    ]));
     setValidationError('');
   };
 
   const handleRemoveParticipant = (id) => {
     if (participants.length <= 1) return;
-    setParticipants(prev => prev.filter(p => p.id !== id));
+    setParticipants(prev => reindexParticipants(prev.filter(p => p.id !== id)));
     setValidationError('');
   };
 
@@ -80,8 +91,7 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
   const handleProceedToReview = () => {
     for (let i = 0; i < participants.length; i++) {
       const p = participants[i];
-      const pNum = p.participantNumber || (participants.length - i);
-      const participantNum = String(pNum).padStart(2, '0');
+      const participantNum = String(i + 1).padStart(2, '0');
       const participantLabel = p.name?.trim() ? `Participant ${participantNum} (${p.name.trim()})` : `Participant ${participantNum}`;
 
       // 1. Mandatory Name
@@ -93,6 +103,12 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
       // 2. Mandatory Date of Birth (DD/MM/YYYY)
       if (!p.dob) {
         setValidationError(`Please select the Date of Birth (DOB in DD/MM/YYYY) for ${participantLabel}.`);
+        return;
+      }
+
+      // 3. Mandatory valid phone number
+      if (!isValidIndianPhoneNumber(p.phoneNumber)) {
+        setValidationError(`Please enter a valid 10-digit Indian mobile number for ${participantLabel}.`);
         return;
       }
 
@@ -186,6 +202,7 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
         participantNumber: 1,
         name: '', 
         dob: '', 
+        phoneNumber: '',
         age: '', 
         idProofUrl: '', 
         idProofName: '', 

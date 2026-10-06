@@ -105,6 +105,7 @@ export const api = {
         participants: participants.map(p => ({
           name: p.name.trim(),
           dob: p.dob,
+          phoneNumber: (p.phoneNumber || '').replace(/\D/g, '').slice(0, 10),
           age: parseInt(p.age, 10) || undefined,
           idProofType: p.idProofType || 'Aadhaar Card (with DOB)'
         })),
@@ -114,6 +115,21 @@ export const api = {
   },
 
   getRegistration: (id) => request(`/api/registrations/${id}`),
+
+  updateAdminRegistration: async (registrationId, participants) => {
+    return await request(`/api/admin/registrations/${registrationId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ participants: participants.map(p => ({
+        participantId: p.participantId || p.id,
+        id: p.id,
+        name: p.name?.trim() || '',
+        dob: p.dob,
+        phoneNumber: (p.phoneNumber || '').replace(/\D/g, '').slice(0, 10),
+        age: parseInt(p.age, 10) || undefined,
+        idProofType: p.idProofType || 'Aadhaar Card (with DOB)'
+      })) })
+    });
+  },
 
   // Step 3 Authoritative Payment Proof Verification (Three-Way Amount Comparison)
   verifyPaymentProof: async (registrationId, enteredAmount, file) => {

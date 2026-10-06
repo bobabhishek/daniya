@@ -22,9 +22,15 @@ ADMIN_TOKEN = "test_token_admin_1:teamredhawkz@gmail.com:Organizer Admin"
 
 
 @pytest.fixture(autouse=True)
-def clean_memory_db():
+def clean_memory_db(monkeypatch, tmp_path):
+    from app import firebase
+    monkeypatch.setattr(firebase, "init_firebase", lambda: None)
+    firebase._firebase_app = None
+    firebase._firestore_db = None
+    memory_db._persistence_file = str(tmp_path / "local_firestore_db.json")
     memory_db.clear()
     yield
+    memory_db.clear()
 
 
 def generate_synthetic_receipt_bytes(amount: int, utr: str = "123456789012") -> bytes:
@@ -50,7 +56,7 @@ def test_01_verified_payment_stores_receipt_locally():
     """
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": "Pooja Verma", "dob": "10/05/2001"}]},
+        json={"participants": [{"name": "Pooja Verma", "dob": "10/05/2001", "phoneNumber": "9876543210"}]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     assert create_res.status_code == 201
@@ -87,7 +93,7 @@ def test_02_failed_payment_does_not_create_receipt():
     """
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": "Rohan Gupta", "dob": "12/12/1999"}]},
+        json={"participants": [{"name": "Rohan Gupta", "dob": "12/12/1999", "phoneNumber": "9123456789"}]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -121,7 +127,7 @@ def test_03_ocr_failure_does_not_create_receipt():
     """
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": "Kavita Rao", "dob": "15/07/2002"}]},
+        json={"participants": [{"name": "Kavita Rao", "dob": "15/07/2002", "phoneNumber": "9988776655"}]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -173,7 +179,7 @@ def test_05_master_excel_contains_physically_embedded_images():
     # 1. Create and verify a booking with an image
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": "Vikram Singh", "dob": "20/03/1995"}]},
+        json={"participants": [{"name": "Vikram Singh", "dob": "20/03/1995", "phoneNumber": "9876123456"}]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -223,7 +229,7 @@ def test_06_master_excel_multiple_registrations_correct_rows():
     # Create one verified and one pending registration
     c1 = client.post(
         "/api/registrations",
-        json={"participants": [{"name": "Participant One", "dob": "01/01/1990"}]},
+        json={"participants": [{"name": "Participant One", "dob": "01/01/1990", "phoneNumber": "9001122334"}]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id_1 = c1.json()["registrationId"]
@@ -240,7 +246,7 @@ def test_06_master_excel_multiple_registrations_correct_rows():
     # Pending registration (no payment submitted)
     c2 = client.post(
         "/api/registrations",
-        json={"participants": [{"name": "Participant Two", "dob": "02/02/1992"}]},
+        json={"participants": [{"name": "Participant Two", "dob": "02/02/1992", "phoneNumber": "9011223344"}]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id_2 = c2.json()["registrationId"]

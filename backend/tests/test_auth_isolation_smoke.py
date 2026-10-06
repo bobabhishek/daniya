@@ -14,9 +14,15 @@ ADMIN_TOKEN = "test_token_admin_1:teamredhawkz@gmail.com:Organizer Admin"
 
 
 @pytest.fixture(autouse=True)
-def clean_memory_db():
+def clean_memory_db(monkeypatch, tmp_path):
+    from app import firebase
+    monkeypatch.setattr(firebase, "init_firebase", lambda: None)
+    firebase._firebase_app = None
+    firebase._firestore_db = None
+    memory_db._persistence_file = str(tmp_path / "local_firestore_db.json")
     memory_db.clear()
     yield
+    memory_db.clear()
 
 
 def generate_synthetic_receipt_bytes(amount: int) -> bytes:
@@ -123,8 +129,8 @@ def test_complete_attendee_pass_lifecycle_and_user_isolation():
         "/api/registrations",
         json={
             "participants": [
-                {"name": "Sneha Rao", "dob": "10/08/2002"},
-                {"name": "Vikas Rao", "dob": "15/12/1998"}
+                {"name": "Sneha Rao", "dob": "10/08/2002", "phoneNumber": "9876543210"},
+                {"name": "Vikas Rao", "dob": "15/12/1998", "phoneNumber": "9123456789"}
             ]
         },
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}

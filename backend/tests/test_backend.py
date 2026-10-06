@@ -21,9 +21,15 @@ ADMIN_TOKEN = "test_token_admin_1:teamredhawkz@gmail.com:Organizer Admin"
 
 
 @pytest.fixture(autouse=True)
-def clean_memory_db():
+def clean_memory_db(monkeypatch, tmp_path):
+    from app import firebase
+    monkeypatch.setattr(firebase, "init_firebase", lambda: None)
+    firebase._firebase_app = None
+    firebase._firestore_db = None
+    memory_db._persistence_file = str(tmp_path / "local_firestore_db.json")
     memory_db.clear()
     yield
+    memory_db.clear()
 
 
 def test_production_missing_firebase_raises_clear_error(monkeypatch):
@@ -75,6 +81,9 @@ def test_health_check():
 
 def test_id_generation():
     """Verify sequential registration and ticket ID formats."""
+    memory_db.clear()
+    memory_db.collection("counters").document("registration_sequence").set({"current": 0}, merge=True)
+
     reg_id_1 = IdService.get_next_registration_id()
     assert reg_id_1 == "KD-000001"
 
@@ -139,9 +148,9 @@ def test_registration_creation_does_not_issue_tickets():
     """
     payload = {
         "participants": [
-            {"name": "Participant A", "dob": "14/03/2008", "age": 18},
-            {"name": "Participant B", "dob": "05/11/1994", "age": 32},
-            {"name": "Participant C", "dob": "22/09/2006", "age": 20}
+            {"name": "Participant A", "dob": "14/03/2008", "age": 18, "phoneNumber": "9876543210"},
+            {"name": "Participant B", "dob": "05/11/1994", "age": 32, "phoneNumber": "9123456789"},
+            {"name": "Participant C", "dob": "22/09/2006", "age": 20, "phoneNumber": "9988776655"}
         ],
         "paymentMethod": "UPI (Official QR)"
     }
@@ -174,6 +183,64 @@ def test_registration_creation_does_not_issue_tickets():
     assert ticket_lookup.status_code == 404
 
 
+def test_registration_requires_valid_indian_phone_number():
+    """Each participant must include a valid 10-digit Indian mobile number."""
+    payload = {
+        "participants": [
+            {"name": "Participant A", "dob": "14/03/2008", "phoneNumber": "987654321"},
+            {"name": "Participant B", "dob": "05/11/1994", "phoneNumber": "98765abc12"}
+        ]
+    }
+
+    response = client.post(
+        "/api/registrations",
+        json=payload,
+        headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
+    )
+
+    assert response.status_code == 422
+
+
+def test_admin_can_update_registration_phone_number_in_database():
+    """Admin update endpoint must persist participant phone numbers and reflect saved values."""
+    create_payload = {
+        "participants": [
+            {"name": "Participant A", "dob": "14/03/2008", "phoneNumber": "9876543210"},
+            {"name": "Participant B", "dob": "05/11/1994", "phoneNumber": "9123456789"}
+        ]
+    }
+
+    create_response = client.post(
+        "/api/registrations",
+        json=create_payload,
+        headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
+    )
+    assert create_response.status_code == 201
+    reg_id = create_response.json()["registrationId"]
+
+    update_response = client.patch(
+        f"/api/admin/registrations/{reg_id}",
+        json={
+            "participants": [
+                {"participantId": "p1", "name": "Participant A", "dob": "14/03/2008", "phoneNumber": "9999999999"},
+                {"participantId": "p2", "name": "Participant B", "dob": "05/11/1994", "phoneNumber": "9123456789"}
+            ]
+        },
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+    )
+
+    assert update_response.status_code == 200
+    saved = update_response.json()
+    assert saved["participants"][0]["phoneNumber"] == "9999999999"
+
+    db_record = client.get(
+        f"/api/admin/registrations/{reg_id}",
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+    )
+    assert db_record.status_code == 200
+    assert db_record.json()["participants"][0]["phoneNumber"] == "9999999999"
+
+
 def test_three_way_amount_match_success():
     """
     TEST THREE-WAY MATCH (SUCCESS):
@@ -188,9 +255,9 @@ def test_three_way_amount_match_success():
     # 1. Create registration for 3 participants
     payload = {
         "participants": [
-            {"name": "Participant A", "dob": "14/03/2008"},
-            {"name": "Participant B", "dob": "05/11/1994"},
-            {"name": "Participant C", "dob": "22/09/2006"}
+            {"name": "Participant A", "dob": "14/03/2008", "phoneNumber": "9876543210"},
+            {"name": "Participant B", "dob": "05/11/1994", "phoneNumber": "9123456789"},
+            {"name": "Participant C", "dob": "22/09/2006", "phoneNumber": "9988776655"}
         ]
     }
     create_res = client.post(
@@ -239,7 +306,7 @@ def test_three_way_mismatch_user_entered_wrong_amount():
     """
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": f"P{i}", "dob": "01/01/2000"} for i in range(3)]},
+        json={"participants": [{"name": f"P{i}", "dob": "01/01/2000", "phoneNumber": ["9876543210", "9123456789", "9988776655"][i]} for i in range(3)]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -277,7 +344,7 @@ def test_three_way_mismatch_ocr_wrong_amount():
     """
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": f"P{i}", "dob": "01/01/2000"} for i in range(3)]},
+        json={"participants": [{"name": f"P{i}", "dob": "01/01/2000", "phoneNumber": ["9876543210", "9123456789", "9988776655"][i]} for i in range(3)]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -311,7 +378,7 @@ def test_ocr_failure_on_unreadable_image():
     """
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": "Attendee", "dob": "01/01/2000"}]},
+        json={"participants": [{"name": "Attendee", "dob": "01/01/2000", "phoneNumber": "9876543210"}]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -346,7 +413,7 @@ def test_admin_can_view_verified_receipt():
     # 1. Create and verify booking
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": "Attendee", "dob": "01/01/2000"}]},
+        json={"participants": [{"name": "Attendee", "dob": "01/01/2000", "phoneNumber": "9876543210"}]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -380,7 +447,7 @@ def test_user_my_passes_and_my_tickets():
     # 1. Create and verify booking for User A
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": "Kamath Abhishek", "dob": "15/05/2001"}]},
+        json={"participants": [{"name": "Kamath Abhishek", "dob": "15/05/2001", "phoneNumber": "9876543210"}]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -432,7 +499,7 @@ def test_missing_receipt_returns_receipt_unavailable():
     # Create booking without uploading receipt
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": "No Receipt Attendee", "dob": "01/01/2000"}]},
+        json={"participants": [{"name": "No Receipt Attendee", "dob": "01/01/2000", "phoneNumber": "9876543210"}]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -480,7 +547,7 @@ def test_public_gate_qr_ticket_verification():
     # 1. Create and verify a ticket
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": "Gate Test Attendee", "dob": "01/01/2000"}]},
+        json={"participants": [{"name": "Gate Test Attendee", "dob": "01/01/2000", "phoneNumber": "9876543210"}]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -515,7 +582,7 @@ def test_standard_online_pricing_for_under_20():
     from app.models.participant import ParticipantInput
 
     # 18-year-old participant
-    p = ParticipantInput(name="Young Dancer", dob="01/01/2008")
+    p = ParticipantInput(name="Young Dancer", dob="01/01/2008", phoneNumber="9876543210")
     breakdown = PricingService.calculate_breakdown([p], apply_student_discount=False)
     assert breakdown["total_amount"] == 299
     assert breakdown["participant_details"][0]["category"] in ("STUDENT", "UNDER_20")

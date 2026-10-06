@@ -1,6 +1,6 @@
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
-from ..models.registration import RegistrationRecord
+from ..models.registration import RegistrationRecord, AdminRegistrationUpdateRequest
 from ..models.ticket import TicketRecord
 from ..services.registration_service import RegistrationService
 from ..services.ticket_service import TicketService
@@ -62,6 +62,30 @@ async def get_admin_registration(
             detail=f"Registration {registration_id} not found."
         )
     return record
+
+
+@router.patch("/registrations/{registration_id}", response_model=RegistrationRecord)
+async def update_admin_registration(
+    registration_id: str,
+    payload: AdminRegistrationUpdateRequest,
+    admin_user: Dict[str, Any] = Depends(get_current_admin)
+):
+    """Allow an authorized admin to update participant fields while preserving all system-controlled data."""
+    try:
+        updated = RegistrationService.update_registration(registration_id, payload.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc)
+        ) from exc
+
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Registration {registration_id} not found."
+        )
+
+    return updated
 
 
 @router.get("/registrations/{registration_id}/receipt")

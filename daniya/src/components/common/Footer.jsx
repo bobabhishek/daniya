@@ -87,6 +87,15 @@ export default function Footer({ onNavigate, onOpenAdmin, onOpenMyTickets }) {
               {EVENT_CONFIG.VENUE}<br />
               {EVENT_CONFIG.LOCATION}
             </p>
+            <a
+              href={EVENT_CONFIG.MAP_LINK}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-300 hover:text-amber-200 transition-colors"
+            >
+              <MapPin className="w-3.5 h-3.5" />
+              Open Location
+            </a>
 
             <div className="pt-2">
               {user && !isAdmin && (

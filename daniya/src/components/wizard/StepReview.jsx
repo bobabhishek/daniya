@@ -76,10 +76,10 @@ export default function StepReview({ participants, pricingBreakdown, onBack, onP
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {[...participants].sort((a, b) => (a.participantNumber || 0) - (b.participantNumber || 0)).map((p, idx) => {
+                {[...participants].map((p, idx) => {
                   const cat = getParticipantCategory(p.age);
                   const isStudent = cat.category === 'STUDENT';
-                  const pNum = p.participantNumber || (idx + 1);
+                  const pNum = idx + 1;
 
                   return (
                     <tr key={p.id} className="hover:bg-amber-50/40 transition-colors">

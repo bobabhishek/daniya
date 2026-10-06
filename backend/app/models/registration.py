@@ -28,6 +28,11 @@ class RegistrationCreateRequest(BaseModel):
     paymentMethod: Optional[str] = "UPI (Official QR)"
 
 
+class AdminRegistrationUpdateRequest(BaseModel):
+    """Admin-driven update request limited to participant-editable fields."""
+    participants: Optional[List[ParticipantInput]] = Field(default=None, description="Updated participant values")
+
+
 class RegistrationRecord(BaseModel):
     """Master registration record representing ONE booking for 1 or more attendees."""
     registrationId: str = Field(..., description="Unique ID format KD-XXXXXX")

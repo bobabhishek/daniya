@@ -663,6 +663,10 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
           onViewReceipt={(r) => {
             setViewingReceiptRecord(r);
           }}
+          onRecordUpdated={(updated) => {
+            setRegistrations(prev => prev.map(r => r.registrationId === updated.registrationId ? { ...r, ...updated } : r));
+            setSelectedRecord(updated);
+          }}
         />
       )}
 

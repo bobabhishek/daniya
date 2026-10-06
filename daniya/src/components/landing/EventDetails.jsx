@@ -23,7 +23,7 @@ export default function EventDetails({ onRegisterClick }) {
     {
       title: "VENUE",
       value: EVENT_CONFIG.VENUE,
-      subtitle: "To Be Announced",
+      subtitle: "Near Anantha Shayan Temple",
       icon: MapPin,
       accent: "from-yellow-600 to-amber-700",
       bgLight: "bg-yellow-50/50"
@@ -31,7 +31,7 @@ export default function EventDetails({ onRegisterClick }) {
     {
       title: "LOCATION",
       value: EVENT_CONFIG.LOCATION,
-      subtitle: "To Be Announced",
+      subtitle: "View map",
       icon: Navigation,
       accent: "from-emerald-600 to-teal-700",
       bgLight: "bg-emerald-50/50"

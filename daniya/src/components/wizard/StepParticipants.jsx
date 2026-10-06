@@ -11,12 +11,15 @@ import {
   CheckCircle2, 
   ShieldCheck,
   Calendar,
-  AlertCircle
+  AlertCircle,
+  Phone
 } from 'lucide-react';
 import { getParticipantCategory } from '../../utils/pricing';
 import { calculateAgeFromDob, formatToIndianDate } from '../../utils/indianDateUtils';
 import IndianDobInput from '../common/IndianDobInput';
 import StudentDiscountNotice from '../common/StudentDiscountNotice';
+
+const normalizePhoneNumber = (value = '') => (value || '').replace(/\D/g, '').slice(0, 10);
 
 export default function StepParticipants({
   participants,
@@ -170,7 +173,7 @@ export default function StepParticipants({
               const categoryInfo = getParticipantCategory(participant.age);
               const isStudent = categoryInfo.category === 'STUDENT';
               const isAdult = categoryInfo.category === 'ADULT';
-              const pNum = participant.participantNumber || (participants.length - index);
+              const pNum = index + 1;
               const isLatest = index === 0 && participants.length > 1;
 
               return (
@@ -264,6 +267,24 @@ export default function StepParticipants({
                       )}
                     </div>
 
+                  </div>
+
+                  <div className="mt-4">
+                    <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1.5">
+                      Phone Number <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Phone className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
+                      <input
+                        type="tel"
+                        inputMode="numeric"
+                        autoComplete="tel"
+                        placeholder="e.g. 9876543210"
+                        value={participant.phoneNumber || ''}
+                        onChange={(e) => onUpdateParticipant(participant.id, 'phoneNumber', normalizePhoneNumber(e.target.value))}
+                        className="w-full pl-10 pr-3.5 py-2.5 bg-stone-50/70 border border-stone-200 rounded-xl text-stone-900 text-sm placeholder:text-stone-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-medium"
+                      />
+                    </div>
                   </div>
 
                   {/* Real-Time Age & Pricing Tier Badge */}

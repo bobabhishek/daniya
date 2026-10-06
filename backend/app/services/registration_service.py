@@ -9,7 +9,7 @@ from ..models.registration import (
     RegistrationStatus,
     VerificationStatus
 )
-from ..models.participant import ParticipantRecord
+from ..models.participant import ParticipantRecord, ParticipantInput, normalize_indian_phone_number
 from ..services.pricing_service import PricingService
 from ..services.id_service import IdService
 from ..services.ticket_service import TicketService
@@ -48,12 +48,14 @@ class RegistrationService:
         # 3. Create Participant Records (tickets are NOT generated until payment verification succeeds)
         participant_records: List[ParticipantRecord] = []
         for idx, p_info in enumerate(breakdown["participant_details"]):
+            participant_input = request.participants[idx]
             precord = ParticipantRecord(
                 id=p_info["id"],
                 participantId=p_info["participantId"],
                 name=p_info["name"],
                 age=p_info["age"],
                 dob=p_info["dob"],
+                phoneNumber=normalize_indian_phone_number(participant_input.phoneNumber),
                 category=p_info["category"],
                 price=p_info["price"],
                 ticketId=None,  # Assigned ONLY after payment verification succeeds!
@@ -102,6 +104,99 @@ class RegistrationService:
         db = get_db()
         doc = db.collection("registrations").document(registration_id).get()
         return doc.to_dict() if doc.exists else None
+
+    @staticmethod
+    def update_registration(registration_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        db = get_db()
+        doc_ref = db.collection("registrations").document(registration_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            return None
+
+        data = doc.to_dict()
+        if "participants" not in updates:
+            raise ValueError("Only participant updates are supported for this endpoint.")
+
+        incoming_participants = updates.get("participants")
+        if not isinstance(incoming_participants, list):
+            raise ValueError("participants must be a list.")
+
+        current_participants = list(data.get("participants") or [])
+        updated_participants: List[Dict[str, Any]] = []
+
+        for idx, participant_payload in enumerate(incoming_participants):
+            if not isinstance(participant_payload, dict):
+                raise ValueError("Each participant update must be an object.")
+
+            participant_id = str(participant_payload.get("participantId") or participant_payload.get("id") or f"p{idx + 1}")
+            current = next((p for p in current_participants if str(p.get("participantId") or p.get("id") or f"p{idx + 1}") == participant_id), None)
+            if current is None and idx < len(current_participants):
+                current = current_participants[idx]
+
+            if current is None:
+                current = {"id": participant_id, "participantId": participant_id}
+
+            merged = dict(current)
+            merged["id"] = participant_id
+            merged["participantId"] = participant_id
+
+            if "name" in participant_payload:
+                merged["name"] = str(participant_payload["name"]).strip()
+            if "dob" in participant_payload:
+                merged["dob"] = str(participant_payload["dob"]).strip()
+            if "phoneNumber" in participant_payload and participant_payload.get("phoneNumber") is not None:
+                merged["phoneNumber"] = normalize_indian_phone_number(str(participant_payload["phoneNumber"]))
+            elif "phoneNumber" in participant_payload and participant_payload.get("phoneNumber") in (None, ""):
+                merged["phoneNumber"] = None
+            if "idProofType" in participant_payload:
+                merged["idProofType"] = participant_payload["idProofType"]
+
+            if merged.get("dob"):
+                merged["age"] = max(1, int(PricingService.calculate_breakdown([
+                    ParticipantInput(
+                        name=merged.get("name") or "Participant",
+                        dob=merged["dob"],
+                        phoneNumber=merged.get("phoneNumber") or "9876543210",
+                        age=merged.get("age")
+                    )
+                ])["participant_details"][0]["age"]))
+
+            updated_participants.append(merged)
+
+        if not updated_participants:
+            raise ValueError("At least one participant is required.")
+
+        breakdown = PricingService.calculate_breakdown([
+            ParticipantInput(
+                name=p.get("name") or "Participant",
+                dob=p.get("dob") or "01/01/2000",
+                phoneNumber=p.get("phoneNumber") or "9876543210",
+                age=p.get("age")
+            )
+            for p in updated_participants
+        ], apply_student_discount=False)
+
+        for idx, p in enumerate(updated_participants):
+            participant_breakdown = breakdown["participant_details"][idx]
+            p["age"] = participant_breakdown["age"]
+            p["category"] = participant_breakdown["category"]
+            p["price"] = participant_breakdown["price"]
+            p["idProofType"] = participant_breakdown.get("idProofType") or p.get("idProofType") or "Aadhaar Card (with DOB)"
+            p["phoneNumber"] = normalize_indian_phone_number(p.get("phoneNumber") or "") if p.get("phoneNumber") else None
+
+        data["participants"] = updated_participants
+        data["participantsSummary"] = ", ".join([p.get("name") or "Participant" for p in updated_participants])
+        data["participantCount"] = len(updated_participants)
+        data["count"] = len(updated_participants)
+        data["under20Count"] = breakdown["under_20_count"]
+        data["above20Count"] = breakdown["above_20_count"]
+        data["expectedAmount"] = breakdown["total_amount"]
+        data["totalAmount"] = breakdown["total_amount"]
+        data["amount"] = breakdown["total_amount"]
+        data["updatedAt"] = datetime.now().isoformat()
+
+        doc_ref.set(data)
+        return data
 
     @staticmethod
     def mark_payment_verified(
