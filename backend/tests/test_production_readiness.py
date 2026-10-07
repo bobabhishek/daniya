@@ -28,6 +28,14 @@ def test_production_mode_blocks_local_firestore_fallback():
                     get_db()
 
 
+def test_production_public_url_is_normalized_without_blocking_startup():
+    """Production should not crash startup on a localhost default; it should normalize to the public hosting URL."""
+    with patch.object(settings, "ENVIRONMENT", "production"):
+        with patch.object(settings, "PUBLIC_APP_URL", "http://localhost:5173", create=True):
+            settings.validate_production_requirements()
+            assert settings.PUBLIC_APP_URL.startswith("https://")
+
+
 def test_production_mode_blocks_ephemeral_receipts_without_bucket():
     """In production mode, receipt saving without Cloud Storage must fail fast."""
     with patch.object(settings, "ENVIRONMENT", "production"):

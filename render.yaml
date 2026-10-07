@@ -19,3 +19,7 @@ services:
         value: '*'
       - key: FIREBASE_CREDENTIALS_JSON
         sync: false
+      - key: PUBLIC_APP_URL
+        value: https://daniya-sand.vercel.app
+      - key: HF_TOKEN
+        sync: false
