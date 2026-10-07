@@ -306,3 +306,98 @@ def test_08_no_google_drive_routes_exist():
 
     res3 = client.get("/api/drive/oauth2callback")
     assert res3.status_code == 404
+
+
+def test_09_master_excel_contains_participant_name_dob_and_phone():
+    """
+    Test 9: Verifies that when participant details including phone number are registered,
+    the generated Excel workbook contains Name, Date of Birth, and Phone Number
+    in both the Master Registrations sheet and the Participant Details sheet.
+    """
+    create_res = client.post(
+        "/api/registrations",
+        json={
+            "participants": [
+                {
+                    "name": "Meera Patel",
+                    "dob": "14/05/2001",
+                    "phone": "9876543210"
+                }
+            ]
+        },
+        headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
+    )
+    assert create_res.status_code == 201
+    reg_id = create_res.json()["registrationId"]
+    assert create_res.json()["participants"][0]["phone"] == "9876543210"
+
+    res = client.get(
+        "/api/admin/export-excel",
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+    )
+    assert res.status_code == 200
+    wb = load_workbook(io.BytesIO(res.content))
+
+    # 1. Master Registrations Sheet: Column C contains Name, DOB, and Phone
+    ws_master = wb["Master Registrations"]
+    found_row = None
+    for r in range(2, ws_master.max_row + 1):
+        if ws_master.cell(row=r, column=1).value == reg_id:
+            found_row = r
+            break
+    assert found_row is not None
+    summary_val = str(ws_master.cell(row=found_row, column=3).value)
+    assert "Meera Patel" in summary_val
+    assert "14/05/2001" in summary_val
+    assert "9876543210" in summary_val
+
+    # 2. Participant Details Sheet: dedicated columns for Name, DOB, Phone
+    assert "Participant Details" in wb.sheetnames
+    ws_parts = wb["Participant Details"]
+    headers = [cell.value for cell in ws_parts[1]]
+    assert "Full Name" in headers
+    assert "Date of Birth" in headers
+    assert "Phone Number" in headers
+
+    # Locate participant row
+    part_row_found = False
+    for r in range(2, ws_parts.max_row + 1):
+        if ws_parts.cell(row=r, column=1).value == reg_id:
+            assert ws_parts.cell(row=r, column=3).value == "Meera Patel"
+            assert ws_parts.cell(row=r, column=4).value == "14/05/2001"
+            assert ws_parts.cell(row=r, column=5).value == "9876543210"
+            part_row_found = True
+            break
+    assert part_row_found is True
+
+
+def test_10_phone_validation_in_registration_api():
+    """
+    Test 10: Verifies that Indian 10-digit mobile number format is validated.
+    - Valid formats with +91 or leading 0 are cleaned to 10 digits.
+    - Invalid formats (wrong length or starting digit) return 422 Unprocessable Entity.
+    """
+    # 1. Phone with +91 cleaned to 10 digits
+    res_clean = client.post(
+        "/api/registrations",
+        json={"participants": [{"name": "Aarav Shah", "dob": "01/01/2000", "phone": "+91 91234 56789"}]},
+        headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
+    )
+    assert res_clean.status_code == 201
+    assert res_clean.json()["participants"][0]["phone"] == "9123456789"
+
+    # 2. Invalid phone (too short) returns 422
+    res_invalid_short = client.post(
+        "/api/registrations",
+        json={"participants": [{"name": "Aarav Shah", "dob": "01/01/2000", "phone": "98765"}]},
+        headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
+    )
+    assert res_invalid_short.status_code == 422
+
+    # 3. Invalid phone (starts with 3, not valid Indian mobile) returns 422
+    res_invalid_digit = client.post(
+        "/api/registrations",
+        json={"participants": [{"name": "Aarav Shah", "dob": "01/01/2000", "phone": "3123456789"}]},
+        headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
+    )
+    assert res_invalid_digit.status_code == 422

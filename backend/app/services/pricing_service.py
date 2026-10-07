@@ -74,6 +74,7 @@ class PricingService:
                 "id": p_id,
                 "participantId": p_id,
                 "name": p.name,
+                "phone": p.phone or "",
                 "age": calc_age,
                 "dob": p.dob,
                 "category": category,

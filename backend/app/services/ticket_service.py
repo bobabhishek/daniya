@@ -23,6 +23,7 @@ class TicketService:
             participantId=participant.get("participantId") or participant.get("id", "p1"),
             name=participant["name"],
             participantName=participant["name"],
+            phone=participant.get("phone") or None,
             age=participant["age"],
             dob=participant["dob"],
             category=participant.get("category", "ADULT"),

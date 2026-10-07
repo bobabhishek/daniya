@@ -52,6 +52,7 @@ class RegistrationService:
                 id=p_info["id"],
                 participantId=p_info["participantId"],
                 name=p_info["name"],
+                phone=p_info.get("phone") or None,
                 age=p_info["age"],
                 dob=p_info["dob"],
                 category=p_info["category"],

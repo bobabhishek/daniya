@@ -100,6 +100,7 @@ export const api = {
         participants: participants.map(p => ({
           name: p.name.trim(),
           dob: p.dob,
+          phone: p.phone ? String(p.phone).trim() : undefined,
           age: parseInt(p.age, 10) || undefined,
           idProofType: p.idProofType || 'Aadhaar Card (with DOB)'
         })),

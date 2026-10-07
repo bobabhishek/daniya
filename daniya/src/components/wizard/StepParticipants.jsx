@@ -4,6 +4,7 @@ import {
   Plus, 
   Trash2, 
   User, 
+  Phone,
   Sparkles, 
   GraduationCap, 
   ShieldAlert, 
@@ -15,6 +16,7 @@ import {
 } from 'lucide-react';
 import { getParticipantCategory } from '../../utils/pricing';
 import { calculateAgeFromDob, formatToIndianDate } from '../../utils/indianDateUtils';
+import { cleanIndianPhone } from '../../utils/phoneUtils';
 import IndianDobInput from '../common/IndianDobInput';
 import StudentDiscountNotice from '../common/StudentDiscountNotice';
 
@@ -220,7 +222,7 @@ export default function StepParticipants({
                     )}
                   </div>
 
-                  {/* Fields Grid: Name, DOB (DD/MM/YYYY), and Auto-Calculated Age */}
+                  {/* Fields Grid: Name, Phone Number, DOB (DD/MM/YYYY), and Auto-Calculated Age */}
                   <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-start">
                     
                     {/* Full Name Input */}
@@ -240,8 +242,39 @@ export default function StepParticipants({
                       </div>
                     </div>
 
-                    {/* Date of Birth (DOB) - Strict Indian Format DD/MM/YYYY */}
+                    {/* Phone Number Input */}
                     <div className="sm:col-span-6">
+                      <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                        <span>Phone Number <span className="text-red-500">*</span></span>
+                        <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">
+                          10-Digit Mobile
+                        </span>
+                      </label>
+                      <div className="relative">
+                        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-stone-400 pointer-events-none">
+                          <Phone className="w-4 h-4 text-stone-400" />
+                          <span className="text-xs font-bold text-stone-500 border-r border-stone-200 pr-1.5">+91</span>
+                        </div>
+                        <input
+                          type="tel"
+                          inputMode="numeric"
+                          placeholder="e.g. 9876543210"
+                          value={participant.phone || ''}
+                          maxLength={14}
+                          onChange={(e) => onUpdateParticipant(participant.id, 'phone', cleanIndianPhone(e.target.value))}
+                          className="w-full pl-16 pr-3.5 py-2.5 bg-stone-50/70 border border-stone-200 rounded-xl text-stone-900 text-sm placeholder:text-stone-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-medium font-mono"
+                        />
+                      </div>
+                      {participant.phone && participant.phone.length === 10 && (
+                        <p className="mt-1 text-[11px] font-bold text-emerald-800 flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>Mobile: <strong>+91 {participant.phone}</strong></span>
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Date of Birth (DOB) - Strict Indian Format DD/MM/YYYY */}
+                    <div className="sm:col-span-12">
                       <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
                         <span>Date of Birth (DOB) <span className="text-red-500">*</span></span>
                         <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">

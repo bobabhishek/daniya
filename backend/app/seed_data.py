@@ -25,9 +25,9 @@ SEED_REGISTRATIONS = [
         "receiptPath": "receipts/KD-001245/payment_receipt.jpg",
         "ticketIds": ["KD-001245-T01", "KD-001245-T02", "KD-001245-T03"],
         "participants": [
-            {"id": "p1", "participantId": "p1", "name": "Aarav Sharma", "age": 18, "dob": "14/03/2008", "category": "STUDENT", "price": 299, "ticketId": "KD-001245-T01", "idProofType": "Aadhaar Card (with DOB)"},
-            {"id": "p2", "participantId": "p2", "name": "Diya Patel", "age": 20, "dob": "22/09/2006", "category": "STUDENT", "price": 299, "ticketId": "KD-001245-T02", "idProofType": "College ID (with DOB)"},
-            {"id": "p3", "participantId": "p3", "name": "Kabir Mehta", "age": 32, "dob": "05/11/1994", "category": "ADULT", "price": 299, "ticketId": "KD-001245-T03", "idProofType": "Driving License"}
+            {"id": "p1", "participantId": "p1", "name": "Aarav Sharma", "phone": "9876543210", "age": 18, "dob": "14/03/2008", "category": "STUDENT", "price": 299, "ticketId": "KD-001245-T01", "idProofType": "Aadhaar Card (with DOB)"},
+            {"id": "p2", "participantId": "p2", "name": "Diya Patel", "phone": "9876543211", "age": 20, "dob": "22/09/2006", "category": "STUDENT", "price": 299, "ticketId": "KD-001245-T02", "idProofType": "College ID (with DOB)"},
+            {"id": "p3", "participantId": "p3", "name": "Kabir Mehta", "phone": "9876543212", "age": 32, "dob": "05/11/1994", "category": "ADULT", "price": 299, "ticketId": "KD-001245-T03", "idProofType": "Driving License"}
         ]
     },
     {
@@ -56,7 +56,7 @@ SEED_REGISTRATIONS = [
         "receiptPath": "receipts/KD-001246/payment_receipt.jpg",
         "ticketIds": ["KD-001246-T01"],
         "participants": [
-            {"id": "p1", "participantId": "p1", "name": "Ananya Joshi", "age": 19, "dob": "18/01/2007", "category": "STUDENT", "price": 299, "ticketId": "KD-001246-T01", "idProofType": "Aadhaar Card (with DOB)"}
+            {"id": "p1", "participantId": "p1", "name": "Ananya Joshi", "phone": "9876543213", "age": 19, "dob": "18/01/2007", "category": "STUDENT", "price": 299, "ticketId": "KD-001246-T01", "idProofType": "Aadhaar Card (with DOB)"}
         ]
     },
     {
@@ -85,8 +85,8 @@ SEED_REGISTRATIONS = [
         "receiptPath": "receipts/KD-001247/payment_receipt.jpg",
         "ticketIds": ["KD-001247-T01", "KD-001247-T02"],
         "participants": [
-            {"id": "p1", "participantId": "p1", "name": "Pranav Desai", "age": 28, "dob": "11/06/1998", "category": "ADULT", "price": 299, "ticketId": "KD-001247-T01", "idProofType": "Passport"},
-            {"id": "p2", "participantId": "p2", "name": "Sneha Desai", "age": 26, "dob": "15/09/2000", "category": "ADULT", "price": 299, "ticketId": "KD-001247-T02", "idProofType": "Aadhaar Card (with DOB)"}
+            {"id": "p1", "participantId": "p1", "name": "Pranav Desai", "phone": "9876543214", "age": 28, "dob": "11/06/1998", "category": "ADULT", "price": 299, "ticketId": "KD-001247-T01", "idProofType": "Passport"},
+            {"id": "p2", "participantId": "p2", "name": "Sneha Desai", "phone": "9876543215", "age": 26, "dob": "15/09/2000", "category": "ADULT", "price": 299, "ticketId": "KD-001247-T02", "idProofType": "Aadhaar Card (with DOB)"}
         ]
     }
 ]

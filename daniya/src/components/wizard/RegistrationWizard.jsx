@@ -11,6 +11,7 @@ import { generateRegistrationId, generateTicketId, generateTransactionId } from 
 import { useAuth } from '../../context/AuthContext';
 import { usePasses } from '../../context/PassesContext';
 import { formatToIndianDate, formatCurrentIndianDateTime } from '../../utils/indianDateUtils';
+import { isValidIndianPhone, cleanIndianPhone } from '../../utils/phoneUtils';
 import api from '../../services/api';
 
 export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin, onOpenAuth }) {
@@ -22,6 +23,7 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
       id: 'p1', 
       participantNumber: 1,
       name: '', 
+      phone: '',
       dob: '', 
       age: '', 
       idProofUrl: '', 
@@ -47,6 +49,7 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
         id: nextId, 
         participantNumber: nextNum,
         name: '', 
+        phone: '',
         dob: '', 
         age: '', 
         idProofUrl: '', 
@@ -90,7 +93,17 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
         return;
       }
 
-      // 2. Mandatory Date of Birth (DD/MM/YYYY)
+      // 2. Mandatory Phone Number (Valid Indian 10-Digit Mobile)
+      if (!p.phone?.trim()) {
+        setValidationError(`Please enter the phone number for ${participantLabel}.`);
+        return;
+      }
+      if (!isValidIndianPhone(p.phone)) {
+        setValidationError(`Please enter a valid 10-digit Indian mobile number for ${participantLabel}.`);
+        return;
+      }
+
+      // 3. Mandatory Date of Birth (DD/MM/YYYY)
       if (!p.dob) {
         setValidationError(`Please select the Date of Birth (DOB in DD/MM/YYYY) for ${participantLabel}.`);
         return;
@@ -185,6 +198,7 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
         id: `p${Date.now()}`, 
         participantNumber: 1,
         name: '', 
+        phone: '',
         dob: '', 
         age: '', 
         idProofUrl: '', 
@@ -197,11 +211,14 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
     window.scrollTo({ top: 200, behavior: 'smooth' });
   };
 
-  // Sync authenticated attendee's name to Participant 01 if blank
+  // Sync authenticated attendee's name and phone to Participant 01 if blank
   useEffect(() => {
-    if (user && participants.length > 0 && !participants[0].name) {
-      if (user.displayName) {
+    if (user && participants.length > 0) {
+      if (!participants[0].name && user.displayName) {
         handleUpdateParticipant(participants[0].id, 'name', user.displayName);
+      }
+      if (!participants[0].phone && user.phoneNumber) {
+        handleUpdateParticipant(participants[0].id, 'phone', cleanIndianPhone(user.phoneNumber));
       }
     }
   }, [user]);

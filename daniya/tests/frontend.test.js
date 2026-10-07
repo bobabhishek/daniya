@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { ADMIN_EMAIL, ROLES, isAdminUser, getUserRole } from '../src/utils/authRoles.js';
 import { EVENT_CONFIG } from '../src/config/eventConfig.js';
 import { mergeRegistrationsWithTickets } from '../src/utils/mergePassRecords.js';
+import { cleanIndianPhone, isValidIndianPhone, formatIndianPhone } from '../src/utils/phoneUtils.js';
 
 describe('Auth Roles & Authorization Contract', () => {
   test('Admin email is strictly teamredhawkz@gmail.com', () => {
@@ -115,5 +116,43 @@ describe('Attendee Passes Data Merging', () => {
     assert.equal(merged[0].participants[1].name, 'Second Person');
     assert.equal(merged[0].participants[0].participantNumber, 1);
     assert.equal(merged[0].participants[1].participantNumber, 2);
+  });
+});
+
+describe('Indian Phone Number Validation & Formatting', () => {
+  test('isValidIndianPhone accepts valid 10-digit Indian mobile numbers (starts with 6, 7, 8, 9)', () => {
+    assert.equal(isValidIndianPhone('9876543210'), true);
+    assert.equal(isValidIndianPhone('8123456789'), true);
+    assert.equal(isValidIndianPhone('7012345678'), true);
+    assert.equal(isValidIndianPhone('6234567890'), true);
+  });
+
+  test('isValidIndianPhone accepts numbers with +91 or leading 0 prefix and whitespace/hyphens', () => {
+    assert.equal(isValidIndianPhone('+91 98765 43210'), true);
+    assert.equal(isValidIndianPhone('+91-9876543210'), true);
+    assert.equal(isValidIndianPhone('09876543210'), true);
+    assert.equal(isValidIndianPhone('919876543210'), true);
+  });
+
+  test('isValidIndianPhone rejects invalid, short, non-mobile, or empty numbers', () => {
+    assert.equal(isValidIndianPhone(''), false);
+    assert.equal(isValidIndianPhone(null), false);
+    assert.equal(isValidIndianPhone('12345'), false); // too short
+    assert.equal(isValidIndianPhone('5555555555'), false); // starts with 5 (not Indian mobile)
+    assert.equal(isValidIndianPhone('abcdefghij'), false); // non-digits
+    assert.equal(isValidIndianPhone('0123456789'), false); // invalid leading digit
+  });
+
+  test('cleanIndianPhone extracts clean 10-digit representation', () => {
+    assert.equal(cleanIndianPhone('+91 98765 43210'), '9876543210');
+    assert.equal(cleanIndianPhone('09876543210'), '9876543210');
+    assert.equal(cleanIndianPhone('9876-543-210'), '9876543210');
+    assert.equal(cleanIndianPhone(''), '');
+  });
+
+  test('formatIndianPhone formats clean 10-digit mobile number with +91', () => {
+    assert.equal(formatIndianPhone('9876543210'), '+91 98765 43210');
+    assert.equal(formatIndianPhone('+91 9876543210'), '+91 98765 43210');
+    assert.equal(formatIndianPhone(''), '');
   });
 });

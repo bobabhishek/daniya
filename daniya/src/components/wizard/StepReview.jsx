@@ -1,8 +1,9 @@
 import React from 'react';
-import { ArrowLeft, ArrowRight, CheckCircle2, ShieldCheck, User, Calendar, MapPin, Sparkles, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, ShieldCheck, User, Phone, Calendar, MapPin, Sparkles, Loader2 } from 'lucide-react';
 import { EVENT_CONFIG } from '../../config/eventConfig';
 import { getParticipantCategory } from '../../utils/pricing';
 import { formatToIndianDate } from '../../utils/indianDateUtils';
+import { formatIndianPhone } from '../../utils/phoneUtils';
 import StudentDiscountNotice from '../common/StudentDiscountNotice';
 
 export default function StepReview({ participants, pricingBreakdown, onBack, onProceedToPayment, isSubmitting = false }) {
@@ -82,6 +83,12 @@ export default function StepReview({ participants, pricingBreakdown, onBack, onP
                           <User className="w-4 h-4 text-amber-600 shrink-0" />
                           <span>{p.name}</span>
                         </div>
+                        {p.phone && (
+                          <div className="text-[11px] text-stone-500 font-mono flex items-center gap-1 mt-1 font-normal">
+                            <Phone className="w-3 h-3 text-stone-400 shrink-0" />
+                            <span>{formatIndianPhone(p.phone)}</span>
+                          </div>
+                        )}
                       </td>
                       <td className="py-4 text-stone-700">
                         <div className="font-bold text-xs text-stone-900 font-mono">

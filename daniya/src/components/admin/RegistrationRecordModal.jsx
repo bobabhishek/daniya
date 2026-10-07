@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, User, ShieldCheck, Ticket, Eye, FileCheck, Calendar } from 'lucide-react';
+import { X, User, Phone, ShieldCheck, Ticket, Eye, FileCheck, Calendar } from 'lucide-react';
 import IdProofPreviewModal from '../common/IdProofPreviewModal';
 import { formatToIndianDate } from '../../utils/indianDateUtils';
 
@@ -130,7 +130,7 @@ export default function RegistrationRecordModal({ record, onClose, onOpenTickets
                           <span>{p.name}</span>
                         </p>
                         <p className="text-xs text-stone-500 mt-0.5">
-                          Age: <strong>{p.age} yrs</strong> {p.dob ? `• DOB: ${formatToIndianDate(p.dob)} (DD/MM/YYYY)` : ''} • <span className="font-mono text-stone-400">ID: {p.ticketId}</span>
+                          Age: <strong>{p.age} yrs</strong> {p.dob ? `• DOB: ${formatToIndianDate(p.dob)} (DD/MM/YYYY)` : ''} {p.phone ? `• Phone: +91 ${p.phone}` : ''} • <span className="font-mono text-stone-400">ID: {p.ticketId}</span>
                         </p>
                         
                         {/* ID Proof Audit Badge */}

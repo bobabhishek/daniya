@@ -37,6 +37,35 @@ class ExcelExportService:
     MAX_THUMB_WIDTH = 220
     MAX_THUMB_HEIGHT = 240
 
+    @staticmethod
+    def format_participants_summary(reg: Dict[str, Any]) -> str:
+        """Format participant names with DOB and Phone number for Excel display."""
+        participants = reg.get("participants", [])
+        if not participants:
+            return reg.get("participantsSummary") or ""
+        lines = []
+        for idx, p in enumerate(participants, start=1):
+            if isinstance(p, dict):
+                p_name = p.get("name", "").strip()
+                p_dob = p.get("dob", "").strip()
+                p_phone = (p.get("phone") or "").strip()
+            else:
+                p_name = getattr(p, "name", "").strip()
+                p_dob = getattr(p, "dob", "").strip()
+                p_phone = (getattr(p, "phone", "") or "").strip()
+
+            details = [p_name]
+            if p_dob:
+                details.append(f"DOB: {p_dob}")
+            if p_phone:
+                details.append(f"Phone: {p_phone}")
+
+            if len(participants) > 1:
+                lines.append(f"{idx}. " + " | ".join(details))
+            else:
+                lines.append(" | ".join(details))
+        return "\n".join(lines)
+
     @classmethod
     def generate_master_excel(
         cls,
@@ -93,7 +122,7 @@ class ExcelExportService:
         for reg in registrations:
             reg_id = reg.get("registrationId", "")
             date_time = reg.get("dateTime") or reg.get("uploadedAt") or reg.get("createdAt") or ""
-            summary = reg.get("participantsSummary") or ""
+            summary = cls.format_participants_summary(reg)
             count = reg.get("count", reg.get("participantCount", 1))
             amount = reg.get("expectedAmount", reg.get("amount", reg.get("totalAmount", 0)))
             payment_status = str(reg.get("paymentStatus", "PENDING")).upper()
@@ -215,11 +244,11 @@ class ExcelExportService:
 
             current_row += 1
 
-        # 4. Set Fixed Column Widths (optimized for readability and embedded images)
+        # 4. Set Fixed Column Widths for Master Registrations
         column_widths = {
             "A": 18,  # Registration ID
             "B": 22,  # Date/Time
-            "C": 35,  # Participant(s)
+            "C": 45,  # Participant(s) - Name, DOB, Phone
             "D": 10,  # Count
             "E": 14,  # Amount
             "F": 15,  # Payment
@@ -230,7 +259,94 @@ class ExcelExportService:
         for col_letter, width in column_widths.items():
             ws.column_dimensions[col_letter].width = width
 
-        # 5. Save to In-Memory Bytes Buffer
+        # 5. Dedicated "Participant Details" Worksheet (individual row per attendee)
+        ws_parts = wb.create_sheet(title="Participant Details")
+        ws_parts.views.sheetView[0].showGridLines = True
+
+        part_headers = [
+            "Registration ID",
+            "Participant #",
+            "Full Name",
+            "Date of Birth",
+            "Phone Number",
+            "Age",
+            "Category",
+            "Ticket ID",
+            "Payment Status",
+            "Date/Time"
+        ]
+        ws_parts.append(part_headers)
+        ws_parts.row_dimensions[1].height = 28
+
+        for col_idx, h_title in enumerate(part_headers, start=1):
+            cell = ws_parts.cell(row=1, column=col_idx)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = center_align
+            cell.border = cell_border
+
+        part_row = 2
+        for reg in registrations:
+            reg_id = reg.get("registrationId", "")
+            date_time = reg.get("dateTime") or reg.get("uploadedAt") or reg.get("createdAt") or ""
+            payment_status = str(reg.get("paymentStatus", "PENDING")).upper()
+            participants = reg.get("participants", [])
+            for idx, p in enumerate(participants, start=1):
+                if isinstance(p, dict):
+                    p_name = p.get("name", "")
+                    p_dob = p.get("dob", "")
+                    p_phone = p.get("phone") or ""
+                    p_age = p.get("age", "")
+                    p_cat = p.get("category", "")
+                    p_ticket = p.get("ticketId") or ""
+                else:
+                    p_name = getattr(p, "name", "")
+                    p_dob = getattr(p, "dob", "")
+                    p_phone = getattr(p, "phone", "") or ""
+                    p_age = getattr(p, "age", "")
+                    p_cat = getattr(p, "category", "")
+                    p_ticket = getattr(p, "ticketId", "") or ""
+
+                ws_parts.append([
+                    reg_id,
+                    idx,
+                    p_name,
+                    p_dob,
+                    p_phone,
+                    p_age,
+                    p_cat,
+                    p_ticket,
+                    payment_status,
+                    date_time
+                ])
+
+                for c in range(1, len(part_headers) + 1):
+                    cell = ws_parts.cell(row=part_row, column=c)
+                    cell.border = cell_border
+                    cell.font = regular_font
+                    if c in (1, 2, 4, 5, 6, 7, 8, 9, 10):
+                        cell.alignment = center_align
+                    else:
+                        cell.alignment = left_align
+
+                part_row += 1
+
+        part_col_widths = {
+            "A": 18,
+            "B": 14,
+            "C": 25,
+            "D": 16,
+            "E": 18,
+            "F": 10,
+            "G": 14,
+            "H": 20,
+            "I": 16,
+            "J": 22
+        }
+        for col_l, w in part_col_widths.items():
+            ws_parts.column_dimensions[col_l].width = w
+
+        # 6. Save to In-Memory Bytes Buffer
         out_stream = io.BytesIO()
         wb.save(out_stream)
         excel_bytes = out_stream.getvalue()

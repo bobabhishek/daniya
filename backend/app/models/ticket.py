@@ -9,6 +9,7 @@ class TicketRecord(BaseModel):
     participantId: str
     name: str  # Matches frontend ticket.name
     participantName: str
+    phone: Optional[str] = None
     age: int
     dob: str
     category: str = "ADULT"
