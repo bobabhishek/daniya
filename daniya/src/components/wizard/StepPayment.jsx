@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { EVENT_CONFIG } from '../../config/eventConfig';
 import api from '../../services/api';
+import { validateReceiptUpload } from '../../utils/receiptValidation';
 import { ToranGarland, DandiyaSticksIcon, DiyaIcon } from '../common/IndianFestiveMotifs';
 
 export default function StepPayment({ 
@@ -86,18 +87,22 @@ export default function StepPayment({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
-      setFormError('Please select a valid image file (PNG, JPG, JPEG, or WebP).');
-      return;
-    }
-
-    if (file.size > 15 * 1024 * 1024) {
-      setFormError('File size exceeds 15 MB. Please upload a compressed screenshot.');
+    const validation = validateReceiptUpload(file);
+    if (!validation.valid) {
+      setFormError(validation.error);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
       return;
     }
 
     setFormError('');
     setScreenshotFile(file);
+
+    if (screenshotPreview) {
+      URL.revokeObjectURL(screenshotPreview);
+    }
+
     const previewUrl = URL.createObjectURL(file);
     setScreenshotPreview(previewUrl);
     setVerificationError(null);

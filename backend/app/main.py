@@ -22,6 +22,8 @@ logger = logging.getLogger("dandiya_backend")
 async def lifespan(app: FastAPI):
     # Startup sequence
     logger.info("Initializing Garba & Dandiya 2026 Backend...")
+    if settings.ENVIRONMENT == "production":
+        settings.validate_production_requirements()
     init_firebase()
     
     # Hosted HF OCR is the production path.

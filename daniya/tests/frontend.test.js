@@ -4,6 +4,10 @@ import { ADMIN_EMAIL, ROLES, isAdminUser, getUserRole } from '../src/utils/authR
 import { EVENT_CONFIG } from '../src/config/eventConfig.js';
 import { mergeRegistrationsWithTickets } from '../src/utils/mergePassRecords.js';
 import { cleanIndianPhone, isValidIndianPhone, formatIndianPhone } from '../src/utils/phoneUtils.js';
+import { saveStoredPasses, getStoredPasses, clearStoredPasses } from '../src/utils/passCache.js';
+import { getParticipantPhoneNumbers, formatParticipantPhoneNumbers } from '../src/utils/adminTable.js';
+import { isSessionExpired, SESSION_TIMEOUT_MS, getCachedSession } from '../src/utils/sessionCache.js';
+import { validateReceiptUpload } from '../src/utils/receiptValidation.js';
 
 describe('Auth Roles & Authorization Contract', () => {
   test('Admin email is strictly teamredhawkz@gmail.com', () => {
@@ -116,6 +120,104 @@ describe('Attendee Passes Data Merging', () => {
     assert.equal(merged[0].participants[1].name, 'Second Person');
     assert.equal(merged[0].participants[0].participantNumber, 1);
     assert.equal(merged[0].participants[1].participantNumber, 2);
+  });
+});
+
+describe('Attendee Pass Storage Hygiene', () => {
+  test('clearStoredPasses removes stale tickets after backend returns no live passes', () => {
+    const previousWindow = globalThis.window;
+    const previousStorage = globalThis.localStorage;
+    const fakeLocalStorage = {
+      store: {},
+      setItem(key, value) { this.store[key] = String(value); },
+      getItem(key) { return Object.prototype.hasOwnProperty.call(this.store, key) ? this.store[key] : null; },
+      removeItem(key) { delete this.store[key]; },
+      clear() { this.store = {}; },
+      key(index) { return Object.keys(this.store)[index] ?? null; },
+      get length() { return Object.keys(this.store).length; }
+    };
+
+    globalThis.window = { localStorage: fakeLocalStorage };
+    globalThis.localStorage = fakeLocalStorage;
+
+    try {
+      saveStoredPasses('uid-123', 'user@example.com', [{ registrationId: 'KD-OLD-001' }]);
+      assert.equal(getStoredPasses('uid-123', 'user@example.com').length, 1);
+
+      clearStoredPasses('uid-123', 'user@example.com');
+      assert.deepEqual(getStoredPasses('uid-123', 'user@example.com'), []);
+    } finally {
+      globalThis.window = previousWindow;
+      globalThis.localStorage = previousStorage;
+    }
+  });
+});
+
+describe('Admin Dashboard Phone Extraction', () => {
+  test('extracts and formats participant phone numbers for the admin table', () => {
+    const participants = [
+      { name: 'Disha', phoneNumber: '9876543210' },
+      { name: 'Rohan', phone: '+91 9123456789' },
+      { name: 'Asha', phoneNumber: '9876543210' }
+    ];
+
+    assert.deepEqual(getParticipantPhoneNumbers(participants), ['9876543210', '9123456789']);
+    assert.equal(formatParticipantPhoneNumbers(participants), '+91 9876543210, +91 9123456789');
+  });
+});
+
+describe('Session Timeout Protection', () => {
+  test('expired sessions are rejected and stale cached auth is cleared', () => {
+    const previousWindow = globalThis.window;
+    const previousStorage = globalThis.localStorage;
+    const fakeLocalStorage = {
+      store: {},
+      setItem(key, value) { this.store[key] = String(value); },
+      getItem(key) { return Object.prototype.hasOwnProperty.call(this.store, key) ? this.store[key] : null; },
+      removeItem(key) { delete this.store[key]; },
+      clear() { this.store = {}; },
+      key(index) { return Object.keys(this.store)[index] ?? null; },
+      get length() { return Object.keys(this.store).length; }
+    };
+
+    globalThis.window = { localStorage: fakeLocalStorage };
+    globalThis.localStorage = fakeLocalStorage;
+
+    try {
+      const expiredSession = {
+        uid: 'uid-1',
+        email: 'user@example.com',
+        displayName: 'User',
+        lastActiveAt: Date.now() - SESSION_TIMEOUT_MS - 1
+      };
+
+      fakeLocalStorage.setItem('daniya_auth_session', JSON.stringify(expiredSession));
+      assert.equal(isSessionExpired(expiredSession), true);
+      assert.equal(getCachedSession(), null);
+      assert.equal(fakeLocalStorage.getItem('daniya_auth_session'), null);
+    } finally {
+      globalThis.window = previousWindow;
+      globalThis.localStorage = previousStorage;
+    }
+  });
+});
+
+describe('Receipt Upload Protection', () => {
+  test('accepts valid image screenshots and rejects unsupported or oversized uploads', () => {
+    const validFile = { type: 'image/png', size: 2 * 1024 * 1024 };
+    assert.deepEqual(validateReceiptUpload(validFile), { valid: true, error: '' });
+
+    const invalidType = { type: 'application/pdf', size: 2 * 1024 * 1024 };
+    assert.deepEqual(validateReceiptUpload(invalidType), {
+      valid: false,
+      error: 'Please select a valid image file (PNG, JPG, JPEG, or WebP).'
+    });
+
+    const oversized = { type: 'image/jpeg', size: 25 * 1024 * 1024 };
+    assert.deepEqual(validateReceiptUpload(oversized), {
+      valid: false,
+      error: 'File size exceeds 15 MB. Please upload a compressed screenshot.'
+    });
   });
 });
 

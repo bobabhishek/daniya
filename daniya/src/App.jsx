@@ -55,25 +55,8 @@ export default function App() {
     setAuthModalConfig(prev => ({ ...prev, isOpen: false }));
   };
 
-  // Backend synchronization for Admin registrations
-  useEffect(() => {
-    async function syncAdminData() {
-      if (authLoading) return;
-      if (isAdmin) {
-        try {
-          const adminRegs = await api.getAdminRegistrations();
-          if (Array.isArray(adminRegs)) {
-            setRegistrations(adminRegs);
-          }
-        } catch (e) {
-          console.warn('Admin registration sync:', e);
-        }
-      } else {
-        setRegistrations([]);
-      }
-    }
-    syncAdminData();
-  }, [isAdmin, authLoading]);
+  // Admin data is now refreshed in the dashboard itself to avoid duplicate network calls
+  // and overly slow admin loads during redirect / route changes.
 
   // Resolve pending intent after login
   useEffect(() => {

@@ -1,3 +1,4 @@
+import os
 from typing import List
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -57,6 +58,37 @@ class Settings(BaseSettings):
     HF_OCR_MODEL: str = "google/gemma-3-4b-it"
     HF_OCR_TIMEOUT_SECONDS: int = 15
     HF_OCR_USE_LOCAL_FALLBACK: bool = True
+
+    def validate_production_requirements(self) -> None:
+        if self.ENVIRONMENT != "production":
+            return
+
+        missing: List[str] = []
+
+        if not self.ADMIN_EMAIL:
+            missing.append("ADMIN_EMAIL")
+        if not self.PUBLIC_APP_URL or not self.PUBLIC_APP_URL.startswith("https://"):
+            missing.append("PUBLIC_APP_URL must be an HTTPS URL in production")
+        if not self.FIREBASE_PROJECT_ID:
+            missing.append("FIREBASE_PROJECT_ID")
+        if not self.FIREBASE_STORAGE_BUCKET:
+            missing.append("FIREBASE_STORAGE_BUCKET")
+        if not self.HF_TOKEN:
+            missing.append("HF_TOKEN is required for hosted OCR verification in production")
+        if not (
+            self.FIREBASE_CREDENTIALS_JSON
+            or self.FIREBASE_CREDENTIALS_PATH
+            or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+            or os.environ.get("FIREBASE_CREDENTIALS_JSON")
+            or os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON")
+        ):
+            missing.append("Firebase service account credentials must be configured in production")
+
+        if missing:
+            raise RuntimeError(
+                "Production safety checks failed: " + "; ".join(missing) + ". "
+                "Configure the live Firebase project and secure environment variables before deployment."
+            )
 
     @property
     def cors_origins(self) -> List[str]:

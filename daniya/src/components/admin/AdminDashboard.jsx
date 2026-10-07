@@ -12,6 +12,7 @@ import AdminNavbar from '../common/AdminNavbar';
 import { EVENT_CONFIG } from '../../config/eventConfig';
 import { useAuth } from '../../context/AuthContext';
 import api, { getPublicAppUrl } from '../../services/api';
+import { formatParticipantPhoneNumbers, getParticipantPhoneNumbers } from '../../utils/adminTable';
 
 export default function AdminDashboard({ registrations: registrationsProp = [], onBackToSite }) {
   const { user, logout } = useAuth();
@@ -28,6 +29,7 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
   const [ticketPreviewRecord, setTicketPreviewRecord] = useState(null);
   const [viewingReceiptRecord, setViewingReceiptRecord] = useState(null);
   const [isDatabaseEditorOpen, setIsDatabaseEditorOpen] = useState(false);
+  const [auditRegistrationId, setAuditRegistrationId] = useState(null);
 
   React.useEffect(() => {
     let active = true;
@@ -112,10 +114,15 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
     return registrations
       .filter(item => {
         // Search match
+        const phoneSearchText = getParticipantPhoneNumbers(item.participants || [])
+          .join(' ')
+          .toLowerCase();
+
         const matchesSearch = 
           !searchTerm ||
           item.registrationId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          item.participantsSummary?.toLowerCase().includes(searchTerm.toLowerCase());
+          item.participantsSummary?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          phoneSearchText.includes(searchTerm.toLowerCase());
 
         // Payment status filter
         const matchesPayment = paymentFilter === 'ALL' || item.paymentStatus === paymentFilter;
@@ -252,7 +259,10 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
       {/* Dedicated Organizer / Admin Navigation Bar */}
       <AdminNavbar
         onOpenPreview={onBackToSite}
-        onEditDatabase={() => setIsDatabaseEditorOpen(true)}
+        onEditDatabase={() => {
+          setAuditRegistrationId(filteredRegistrations[0]?.registrationId || null);
+          setIsDatabaseEditorOpen(true);
+        }}
         onExportExcel={handleExportMasterExcel}
         isExporting={isExporting}
         onRefreshData={refreshAdminData}
@@ -470,11 +480,14 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
 
               <button
                 type="button"
-                onClick={() => setIsDatabaseEditorOpen(true)}
+                onClick={() => {
+                  setAuditRegistrationId(filteredRegistrations[0]?.registrationId || null);
+                  setIsDatabaseEditorOpen(true);
+                }}
                 className="px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-extrabold text-amber-900 bg-gradient-to-r from-amber-200 via-yellow-200 to-amber-300 hover:from-amber-300 hover:to-yellow-300 shadow-md hover:shadow-lg active:scale-95 transition-all flex items-center gap-2 border border-amber-400/60 cursor-pointer"
-                title="Open the admin database management editor"
+                title="Open the attendee audit drawer"
               >
-                <span>EDIT DATABASE</span>
+                <span>INSPECT / AUDIT</span>
               </button>
 
               <button
@@ -505,6 +518,7 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
                 <tr className="bg-stone-50 border-b border-amber-200/80 text-[11px] font-extrabold text-stone-500 uppercase tracking-wider">
                   <th className="py-3.5 px-3">Registration</th>
                   <th className="py-3.5 px-4 min-w-[180px]">Participants</th>
+                  <th className="py-3.5 px-3 min-w-[150px]">Phone</th>
                   <th className="py-3.5 px-2 text-right">Expected</th>
                   <th className="py-3.5 px-2 text-right">Entered</th>
                   <th className="py-3.5 px-2 text-right">Verified Amount</th>
@@ -519,7 +533,14 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
               </thead>
               <tbody className="divide-y divide-stone-100">
                 {filteredRegistrations.map((row) => (
-                  <tr key={row.registrationId} className="hover:bg-amber-50/30 transition-colors">
+                  <tr
+                    key={row.registrationId}
+                    className="cursor-pointer hover:bg-amber-50/30 transition-colors"
+                    onClick={() => {
+                      setAuditRegistrationId(row.registrationId);
+                      setIsDatabaseEditorOpen(true);
+                    }}
+                  >
                     
                     {/* Registration ID */}
                     <td className="py-3.5 px-3 font-mono font-bold text-stone-900 text-xs">
@@ -534,6 +555,13 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
                       <span className="text-[10px] text-stone-400">
                         {row.count} {row.count === 1 ? 'attendee' : 'attendees'}
                       </span>
+                    </td>
+
+                    {/* Phone Number(s) */}
+                    <td className="py-3.5 px-3">
+                      <div className="font-mono text-[11px] text-stone-700 break-all">
+                        {formatParticipantPhoneNumbers(row.participants || [])}
+                      </div>
                     </td>
 
                     {/* Expected Amount */}
@@ -649,7 +677,11 @@ export default function AdminDashboard({ registrations: registrationsProp = [], 
       {/* Modals */}
       <DatabaseManagementModal
         isOpen={isDatabaseEditorOpen}
-        onClose={() => setIsDatabaseEditorOpen(false)}
+        initialRecordId={auditRegistrationId}
+        onClose={() => {
+          setIsDatabaseEditorOpen(false);
+          setAuditRegistrationId(null);
+        }}
         onRefreshDashboard={refreshAdminData}
       />
 

@@ -11,6 +11,7 @@ import {
   onAuthStateChanged
 } from '../firebase';
 import { isAdminUser, getUserRole, verifyServerRole, clearRoleCache, ROLES } from '../utils/authRoles';
+import { getCachedSession, setCachedSession, SESSION_TIMEOUT_MS, isSessionExpired } from '../utils/sessionCache';
 import { useToast } from './ToastContext';
 
 // Helper to format Firebase errors into friendly messages
@@ -65,36 +66,6 @@ export const ROLE_STATUS = Object.freeze({
 
 const AuthContext = createContext(null);
 
-const SESSION_CACHE_KEY = 'daniya_auth_session';
-
-function getCachedSession() {
-  if (typeof window === 'undefined' || !window.localStorage) return null;
-  try {
-    const raw = window.localStorage.getItem(SESSION_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (parsed && parsed.uid && (parsed.email || parsed.displayName)) {
-      return parsed;
-    }
-  } catch (e) {
-    // ignore corrupted cache
-  }
-  return null;
-}
-
-function setCachedSession(session) {
-  if (typeof window === 'undefined' || !window.localStorage) return;
-  try {
-    if (session) {
-      window.localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(session));
-    } else {
-      window.localStorage.removeItem(SESSION_CACHE_KEY);
-    }
-  } catch (e) {
-    // ignore storage quota issues
-  }
-}
-
 export function AuthProvider({ children }) {
   const initialCache = getCachedSession();
   const [user, setUser] = useState(initialCache);
@@ -110,18 +81,42 @@ export function AuthProvider({ children }) {
 
   const sessionGenRef = useRef(0);
   const cachedUidRef = useRef(initialCache?.uid || null);
+  const inactivityTimerRef = useRef(null);
+
+  const clearSessionAndCache = useCallback(() => {
+    clearRoleCache();
+    setCachedSession(null);
+    setUser(null);
+    setRole(ROLES.GUEST);
+    setAuthStatus(AUTH_STATUS.UNAUTHENTICATED);
+    setRoleStatus(ROLE_STATUS.RESOLVED);
+    setIsServerVerified(false);
+    cachedUidRef.current = null;
+  }, []);
+
+  const updateSessionActivity = useCallback(() => {
+    if (!user) return;
+    const currentSession = getCachedSession();
+    if (currentSession) {
+      const refreshedSession = {
+        ...currentSession,
+        uid: user.uid || currentSession.uid,
+        email: user.email || currentSession.email,
+        displayName: user.displayName || currentSession.displayName,
+        photoURL: user.photoURL || currentSession.photoURL,
+        role,
+        isServerVerified,
+        lastActiveAt: Date.now()
+      };
+      setCachedSession(refreshedSession);
+    }
+  }, [user, role, isServerVerified]);
 
   // Authoritatively resolve user and role ONCE per session
   const resolveSession = useCallback(async (currentUser, currentGen) => {
     if (!currentUser) {
       if (sessionGenRef.current === currentGen) {
-        setCachedSession(null);
-        setUser(null);
-        setRole(ROLES.GUEST);
-        setAuthStatus(AUTH_STATUS.UNAUTHENTICATED);
-        setRoleStatus(ROLE_STATUS.RESOLVED);
-        setIsServerVerified(false);
-        cachedUidRef.current = null;
+        clearSessionAndCache();
       }
       return;
     }
@@ -145,7 +140,7 @@ export function AuthProvider({ children }) {
       setRoleStatus(ROLE_STATUS.RESOLVED);
       setIsServerVerified(isKnownAdmin);
       cachedUidRef.current = currentUser.uid;
-      setCachedSession(sessionObj);
+      setCachedSession({ ...sessionObj, lastActiveAt: Date.now() });
     }
 
     // Verify role authoritatively with backend in the background
@@ -162,7 +157,8 @@ export function AuthProvider({ children }) {
           setCachedSession({
             ...sessionObj,
             role: resolvedRole,
-            isServerVerified: Boolean(verified.authenticated) || isKnownAdmin
+            isServerVerified: Boolean(verified.authenticated) || isKnownAdmin,
+            lastActiveAt: Date.now()
           });
         }
       }
@@ -286,11 +282,7 @@ export function AuthProvider({ children }) {
       const prevName = user?.displayName || user?.email?.split('@')[0] || 'Attendee';
       await firebaseSignOut(auth);
 
-      setUser(null);
-      setRole(ROLES.GUEST);
-      setAuthStatus(AUTH_STATUS.UNAUTHENTICATED);
-      setRoleStatus(ROLE_STATUS.RESOLVED);
-      setIsServerVerified(false);
+      clearSessionAndCache();
 
       showToast({
         title: 'Signed Out Successfully 👋',
@@ -303,6 +295,41 @@ export function AuthProvider({ children }) {
       return { success: false, error, message: formatAuthError(error) };
     }
   };
+
+  useEffect(() => {
+    if (!user) return undefined;
+
+    const resetTimer = () => {
+      updateSessionActivity();
+      if (inactivityTimerRef.current) {
+        window.clearTimeout(inactivityTimerRef.current);
+      }
+      inactivityTimerRef.current = window.setTimeout(() => {
+        if (user) {
+          clearSessionAndCache();
+          showToast({
+            title: 'Session Expired ⏰',
+            message: 'Your session timed out due to inactivity. Please log in again.',
+            type: 'warning'
+          });
+          if (auth.currentUser) {
+            firebaseSignOut(auth).catch(() => null);
+          }
+        }
+      }, SESSION_TIMEOUT_MS);
+    };
+
+    const activityEvents = ['click', 'keydown', 'mousemove', 'touchstart', 'scroll'];
+    activityEvents.forEach((eventName) => window.addEventListener(eventName, resetTimer));
+    resetTimer();
+
+    return () => {
+      activityEvents.forEach((eventName) => window.removeEventListener(eventName, resetTimer));
+      if (inactivityTimerRef.current) {
+        window.clearTimeout(inactivityTimerRef.current);
+      }
+    };
+  }, [user, clearSessionAndCache, showToast, updateSessionActivity]);
 
   const isAdmin = role === ROLES.ADMIN;
   const isAttendee = role === ROLES.ATTENDEE;
