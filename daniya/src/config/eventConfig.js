@@ -12,9 +12,9 @@ export const EVENT_CONFIG = {
   DATE: "10th October 2026",
   DAY: "Saturday",
   TIME: "5:00 PM Onwards",
-  VENUE: "TBA",
-  LOCATION: "TBA",
-  MAP_LINK: "#",
+  VENUE: "Hotel Prakash",
+  LOCATION: "Market Lane, Ananthashayana Road, near Anantha Shayan Temple, Karkala, Karnataka 574104",
+  MAP_LINK: "https://share.google/xBGfwvKmnYkSyyjlt",
 
   // Non-Negotiable Pricing Tiers
   PRICING: {

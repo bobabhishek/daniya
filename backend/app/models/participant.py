@@ -1,12 +1,23 @@
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 import re
+
+
+def normalize_indian_phone_number(value: str) -> str:
+    """Normalize a phone number to the canonical 10-digit Indian mobile format."""
+    digits = re.sub(r"\D", "", (value or "").strip())
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    elif len(digits) == 11 and digits.startswith("0"):
+        digits = digits[1:]
+    return digits
 
 
 class ParticipantInput(BaseModel):
     """Input received from attendee during registration."""
     name: str = Field(..., min_length=2, max_length=100, description="Full legal name of the participant")
     dob: str = Field(..., description="Date of birth in DD/MM/YYYY format")
+    phoneNumber: Optional[str] = Field(None, description="Indian mobile number for this participant")
     phone: Optional[str] = Field(None, description="10-digit Indian mobile number")
     age: Optional[int] = Field(None, ge=1, le=100, description="Attendee age (verified by server from DOB)")
     idProofType: Optional[str] = Field("Aadhaar Card (with DOB)", description="Type of physical ID to present at gate")
@@ -27,21 +38,34 @@ class ParticipantInput(BaseModel):
             raise ValueError("Date of Birth must strictly be in DD/MM/YYYY format")
         return v.strip()
 
+    @field_validator("phoneNumber")
+    @classmethod
+    def validate_phone_number(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return None
+        cleaned = normalize_indian_phone_number(v)
+        if not re.fullmatch(r"\d{10}", cleaned) or not cleaned.startswith(tuple("6789")):
+            raise ValueError("Please enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.")
+        return cleaned
+
     @field_validator("phone")
     @classmethod
     def validate_phone(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
+        if not v:
             return None
-        cleaned = re.sub(r"\D", "", str(v).strip())
-        if len(cleaned) == 12 and cleaned.startswith("91"):
-            cleaned = cleaned[2:]
-        elif len(cleaned) == 11 and cleaned.startswith("0"):
-            cleaned = cleaned[1:]
-        if not cleaned:
-            return None
-        if not re.match(r"^[6-9]\d{9}$", cleaned):
-            raise ValueError("Phone number must be a valid 10-digit Indian mobile number")
+        cleaned = normalize_indian_phone_number(v)
+        if not re.fullmatch(r"\d{10}", cleaned) or not cleaned.startswith(tuple("6789")):
+            raise ValueError("Please enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.")
         return cleaned
+
+    @model_validator(mode="after")
+    def sync_phones_and_validate(self):
+        val = self.phoneNumber or self.phone
+        if not val:
+            raise ValueError("Please enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.")
+        self.phoneNumber = val
+        self.phone = val
+        return self
 
 
 class ParticipantRecord(BaseModel):
@@ -50,9 +74,18 @@ class ParticipantRecord(BaseModel):
     participantId: str = Field(..., description="Canonical participant ID")
     name: str
     phone: Optional[str] = Field(None, description="10-digit Indian mobile number")
+    phoneNumber: Optional[str] = Field(None, description="Indian mobile number for this attendee")
     age: int
     dob: str
     category: str = Field(..., description="'STUDENT' or 'ADULT'")
     price: int = Field(..., description="Calculated ticket fee in INR")
     ticketId: Optional[str] = Field(None, description="Assigned ticket pass ID e.g. KD-001245-T01 (assigned only after verification)")
     idProofType: Optional[str] = "Aadhaar Card (with DOB)"
+
+    @model_validator(mode="after")
+    def sync_record_phones(self):
+        val = self.phoneNumber or self.phone
+        if val:
+            self.phoneNumber = val
+            self.phone = val
+        return self

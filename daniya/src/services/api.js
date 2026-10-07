@@ -1,10 +1,9 @@
 import { auth } from '../firebase';
+import { API_BASE_URL } from '../config/apiConfig.js';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
-/** Public frontend URL for pass/receipt links (production: set VITE_PUBLIC_APP_URL). */
+/** Public frontend URL for pass/receipt links (production: set VITE_PUBLIC_APP_URL or VITE_PUBLIC_TICKET_BASE_URL). */
 export function getPublicAppUrl() {
-  const configured = import.meta.env.VITE_PUBLIC_APP_URL;
+  const configured = import.meta.env.VITE_PUBLIC_APP_URL || import.meta.env.VITE_PUBLIC_TICKET_BASE_URL;
   if (configured && String(configured).trim()) {
     return String(configured).trim().replace(/\/$/, '');
   }
@@ -61,6 +60,9 @@ async function request(endpoint, options = {}) {
   }
 
   const url = `${API_BASE_URL}${endpoint}`;
+  const method = options.method || 'GET';
+  console.log(`%c[API 🚀] ${method} ${endpoint}`, 'color: #3b82f6; font-weight: bold;');
+
   try {
     const res = await fetch(url, {
       ...options,
@@ -75,12 +77,15 @@ async function request(endpoint, options = {}) {
       } catch {
         // use status text
       }
+      console.error(`%c[API 🔴 ${res.status}] ${method} ${endpoint}: ${errDetail}`, 'color: #ef4444; font-weight: bold;');
       const error = new Error(errDetail);
       error.status = res.status;
       throw error;
     }
 
-    return await res.json();
+    const data = await res.json();
+    console.log(`%c[API 🟢 ${res.status}] ${method} ${endpoint}`, 'color: #10b981; font-weight: bold;', data);
+    return data;
   } catch (err) {
     throw err;
   }
@@ -92,6 +97,26 @@ export const api = {
   verifyUserRole: () => request('/api/auth/verify-role'),
   getSessionInfo: () => request('/api/auth/session'),
 
+  // Admin Database Management
+  getDatabaseCollections: () => request('/api/admin/db/collections'),
+  getDatabaseCollection: (collection) => request(`/api/admin/db/${encodeURIComponent(collection)}`),
+  getDatabaseDocument: (collection, documentId) => request(`/api/admin/db/${encodeURIComponent(collection)}/${encodeURIComponent(documentId)}`),
+  createDatabaseDocument: (collection, documentId, data = {}) => request(`/api/admin/db/${encodeURIComponent(collection)}`, {
+    method: 'POST',
+    body: JSON.stringify({ documentId, data })
+  }),
+  updateDatabaseDocument: (collection, documentId, data = {}, options = {}) => request(`/api/admin/db/${encodeURIComponent(collection)}/${encodeURIComponent(documentId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      data,
+      replace: true,
+      confirmCounterOverride: Boolean(options.confirmCounterOverride)
+    })
+  }),
+  deleteDatabaseDocument: (collection, documentId) => request(`/api/admin/db/${encodeURIComponent(collection)}/${encodeURIComponent(documentId)}`, {
+    method: 'DELETE'
+  }),
+
   // Registrations (Step 1 -> Creates master pending record with backend expectedAmount)
   createRegistration: async (participants, paymentMethod = 'UPI (Official QR)') => {
     return await request('/api/registrations', {
@@ -100,7 +125,8 @@ export const api = {
         participants: participants.map(p => ({
           name: p.name.trim(),
           dob: p.dob,
-          phone: p.phone ? String(p.phone).trim() : undefined,
+          phone: (p.phone || p.phoneNumber || '').replace(/\D/g, '').slice(-10) || undefined,
+          phoneNumber: (p.phoneNumber || p.phone || '').replace(/\D/g, '').slice(-10) || undefined,
           age: parseInt(p.age, 10) || undefined,
           idProofType: p.idProofType || 'Aadhaar Card (with DOB)'
         })),
@@ -110,6 +136,22 @@ export const api = {
   },
 
   getRegistration: (id) => request(`/api/registrations/${id}`),
+
+  updateAdminRegistration: async (registrationId, participants) => {
+    return await request(`/api/admin/registrations/${registrationId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ participants: participants.map(p => ({
+        participantId: p.participantId || p.id,
+        id: p.id,
+        name: p.name?.trim() || '',
+        dob: p.dob,
+        phoneNumber: (p.phoneNumber || p.phone || '').replace(/\D/g, '').slice(0, 10),
+        phone: (p.phone || p.phoneNumber || '').replace(/\D/g, '').slice(0, 10),
+        age: parseInt(p.age, 10) || undefined,
+        idProofType: p.idProofType || 'Aadhaar Card (with DOB)'
+      })) })
+    });
+  },
 
   // Step 3 Authoritative Payment Proof Verification (Three-Way Amount Comparison)
   verifyPaymentProof: async (registrationId, enteredAmount, file) => {
@@ -124,25 +166,42 @@ export const api = {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 20000);
+
     const url = `${API_BASE_URL}/api/payments/verify-proof`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: formData
-    });
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: formData,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
 
-    if (!res.ok) {
-      let errDetail = `HTTP ${res.status}`;
-      try {
-        const errorJson = await res.json();
-        errDetail = errorJson.detail || errorJson.message || errDetail;
-      } catch {}
-      const error = new Error(errDetail);
-      error.status = res.status;
-      throw error;
+      if (!res.ok) {
+        let errDetail = `HTTP ${res.status}`;
+        try {
+          const errorJson = await res.json();
+          errDetail = errorJson.detail || errorJson.message || errDetail;
+        } catch {}
+        const error = new Error(errDetail);
+        error.status = res.status;
+        throw error;
+      }
+
+      return await res.json();
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        const timeoutErr = new Error('Verification is taking longer than expected. Please try again.');
+        timeoutErr.isTimeout = true;
+        throw timeoutErr;
+      }
+      throw err;
     }
-
-    return await res.json();
   },
 
   // Legacy fallback

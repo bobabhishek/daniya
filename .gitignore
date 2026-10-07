@@ -19,8 +19,9 @@ build/
 *.pem
 
 # Local env files
-.env.local
-.env.*.local
+.env
+.env.*
+!.env.example
 
 # Logs
 npm-debug.log*
@@ -59,4 +60,5 @@ receipts/
 scratch/
 backend/scratch/
 backend/scratch_test_live_e2e.py
-
+backend/data/
+local_firestore_db.json

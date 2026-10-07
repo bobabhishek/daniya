@@ -51,7 +51,7 @@ async def verify_payment_proof(
     Authoritative Three-Way Payment Verification:
     1. EXPECTED AMOUNT: Calculated authoritatively by backend from participants.
     2. USER ENTERED AMOUNT: Submitted by attendee after receipt upload.
-    3. OCR AMOUNT: Extracted via RapidOCR from the uploaded screenshot.
+    3. OCR AMOUNT: Extracted via hosted OCR from the uploaded screenshot.
 
     CRITICAL RULES:
     - ALL THREE MUST MATCH.
@@ -93,16 +93,28 @@ async def verify_payment_proof(
             detail="Uploaded file is empty. Please select a valid payment screenshot."
         )
 
-    # Execute authoritative three-way verification
-    result = PaymentService.verify_payment_receipt(
-        registration_id=registration_id,
-        entered_amount=entered_amount,
-        image_bytes=image_bytes,
-        filename=receipt.filename or "payment_receipt.jpg",
-        content_type=content_type
-    )
-
-    return PaymentVerificationResponse(**result)
+    # Execute authoritative three-way verification with safe error handling in worker thread
+    try:
+        from anyio import to_thread
+        result = await to_thread.run_sync(
+            PaymentService.verify_payment_receipt,
+            registration_id,
+            entered_amount,
+            image_bytes,
+            receipt.filename or "payment_receipt.jpg",
+            content_type
+        )
+        return PaymentVerificationResponse(**result)
+    except Exception as e:
+        import logging
+        logging.getLogger("dandiya_backend.payments").error(
+            f"Unhandled exception during payment verification for {registration_id}: {e}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Payment verification service temporarily failed. Please try again."
+        )
 
 
 @router.post("/verify", response_model=PaymentVerificationResponse)

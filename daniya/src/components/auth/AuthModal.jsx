@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ADMIN_EMAIL } from '../../utils/authRoles';
+import { ToranGarland, DandiyaSticksIcon, DiyaIcon } from '../common/IndianFestiveMotifs';
 
 export default function AuthModal({ 
   isOpen, 
@@ -25,6 +26,7 @@ export default function AuthModal({
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   // Feedback states
   const [errorMessage, setErrorMessage] = useState('');
@@ -38,6 +40,8 @@ export default function AuthModal({
   // Reset form when switching tabs or closing
   const switchMode = (newMode) => {
     setMode(newMode);
+    setShowPassword(false);
+    setShowConfirmPassword(false);
     setErrorMessage('');
     setSuccessMessage('');
   };
@@ -46,6 +50,8 @@ export default function AuthModal({
     setErrorMessage('');
     setSuccessMessage('');
     setAuthComplete(false);
+    setShowPassword(false);
+    setShowConfirmPassword(false);
     onClose();
   };
 
@@ -204,12 +210,14 @@ export default function AuthModal({
             </button>
 
             {/* Festive Crest Icon with Dandiya flair */}
-            <div className="inline-flex items-center justify-center w-11 h-11 rounded-2xl bg-white/15 backdrop-blur-md border border-white/30 shadow-inner mb-2.5">
-              <Sparkles className="w-5 h-5 text-amber-300 animate-pulse" />
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white/15 backdrop-blur-md border border-amber-300/40 shadow-inner mb-2">
+              <DandiyaSticksIcon className="w-6 h-6 text-amber-300 drop-shadow-sm" />
             </div>
 
-            <div className="text-[10px] font-bold uppercase tracking-widest text-amber-200/90 mb-1">
-              Taal Pe Nacho Re • Dandiya Night 2026
+            <div className="text-[10px] font-bold uppercase tracking-widest text-amber-200/90 mb-1 flex items-center justify-center gap-1.5">
+              <span>✨</span>
+              <span>Taal Pe Nacho Re • Dandiya Night 2026</span>
+              <span>✨</span>
             </div>
 
             <h3 className="font-festive text-2xl font-bold tracking-wide text-white drop-shadow-sm">
@@ -223,6 +231,9 @@ export default function AuthModal({
                 : 'Enter your registered email for instant password reset instructions')}
             </p>
           </div>
+
+          {/* Traditional Toran Garland */}
+          <ToranGarland className="opacity-90 -mt-1 shadow-xs" />
 
           {/* Form Tabs (Login vs Signup) with sleek pill switch */}
           {mode !== 'forgot' && (
@@ -444,7 +455,7 @@ export default function AuthModal({
                       <div className="relative">
                         <Lock className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
-                          type={showPassword ? 'text' : 'password'}
+                          type={showConfirmPassword ? 'text' : 'password'}
                           required
                           value={confirmPassword}
                           onChange={(e) => setConfirmPassword(e.target.value)}
@@ -455,6 +466,14 @@ export default function AuthModal({
                               : 'border-stone-200 focus:ring-2 focus:ring-amber-500/25 focus:border-amber-500'
                           }`}
                         />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 p-1 focus:outline-none"
+                          aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                        >
+                          {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
                       </div>
                     </div>
                   )}

@@ -43,14 +43,19 @@ class TicketService:
         CRITICAL RULE:
         Tickets MUST NOT be generated before successful payment verification.
         This method is invoked ONLY after the three-way amount comparison succeeds.
+        Idempotent: If tickets already exist for this registration, return existing IDs.
         """
+        existing_ids = registration_data.get("ticketIds", [])
+        if existing_ids and len(existing_ids) > 0:
+            return existing_ids
+
         reg_id = registration_data["registrationId"]
         participants = registration_data.get("participants", [])
         tickets_to_save: List[TicketRecord] = []
         ticket_ids: List[str] = []
 
         for idx, p in enumerate(participants):
-            ticket_id = IdService.generate_ticket_id(reg_id, idx)
+            ticket_id = p.get("ticketId") or IdService.generate_ticket_id(reg_id, idx)
             ticket_ids.append(ticket_id)
             p["ticketId"] = ticket_id
 
@@ -90,9 +95,12 @@ class TicketService:
 
     @staticmethod
     def list_tickets_for_registration(registration_id: str) -> List[Dict[str, Any]]:
-        db = get_db()
-        query = db.collection("tickets").where("registrationId", "==", registration_id)
-        results = []
-        for doc in query.stream():
-            results.append(doc.to_dict())
-        return results
+        try:
+            db = get_db()
+            query = db.collection("tickets").where("registrationId", "==", registration_id)
+            results = []
+            for doc in query.stream():
+                results.append(doc.to_dict())
+            return results
+        except Exception as e:
+            return []

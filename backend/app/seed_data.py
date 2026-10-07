@@ -88,5 +88,35 @@ SEED_REGISTRATIONS = [
             {"id": "p1", "participantId": "p1", "name": "Pranav Desai", "phone": "9876543214", "age": 28, "dob": "11/06/1998", "category": "ADULT", "price": 299, "ticketId": "KD-001247-T01", "idProofType": "Passport"},
             {"id": "p2", "participantId": "p2", "name": "Sneha Desai", "phone": "9876543215", "age": 26, "dob": "15/09/2000", "category": "ADULT", "price": 299, "ticketId": "KD-001247-T02", "idProofType": "Aadhaar Card (with DOB)"}
         ]
+    },
+    {
+        "registrationId": "KD-001248",
+        "userId": "user_abhishek_kamath",
+        "userEmail": "bobabhishek18@gmail.com",
+        "userName": "Abhishek Bob (kamath)",
+        "createdAt": "2026-10-04T09:15:00",
+        "dateTime": "04/10/2026, 09:15 AM",
+        "participantsSummary": "Abhishek Bob, Kamath",
+        "count": 2,
+        "participantCount": 2,
+        "under20Count": 0,
+        "above20Count": 2,
+        "expectedAmount": 598,
+        "totalAmount": 598,
+        "amount": 598,
+        "enteredAmount": 598,
+        "ocrAmount": 598,
+        "ocrConfidence": 0.99,
+        "paymentStatus": "PAID",
+        "verificationStatus": "VERIFIED",
+        "registrationStatus": "CONFIRMED",
+        "paymentMethod": "UPI (Official QR)",
+        "transactionId": "TXN-7A21C944",
+        "receiptPath": "receipts/KD-001248/payment_receipt.jpg",
+        "ticketIds": ["KD-001248-T01", "KD-001248-T02"],
+        "participants": [
+            {"id": "p1", "participantId": "p1", "name": "Abhishek Bob", "age": 24, "dob": "18/06/2002", "category": "ADULT", "price": 299, "ticketId": "KD-001248-T01", "idProofType": "Aadhaar Card (with DOB)"},
+            {"id": "p2", "participantId": "p2", "name": "Kamath", "age": 23, "dob": "12/04/2003", "category": "ADULT", "price": 299, "ticketId": "KD-001248-T02", "idProofType": "Aadhaar Card (with DOB)"}
+        ]
     }
 ]

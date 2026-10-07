@@ -75,11 +75,11 @@ export default function StepSuccess({ registration, onReset, onOpenAdmin }) {
         </span>
 
         <h2 className="mt-3 text-3xl sm:text-4xl font-extrabold text-stone-900 font-festive">
-          REGISTRATION SUCCESSFUL
+          PAYMENT VERIFIED
         </h2>
 
         <p className="mt-2 text-stone-600 text-sm sm:text-base max-w-md mx-auto">
-          Your entry passes have been issued. Present your digital ticket pass at the venue entrance.
+          Your registration has been confirmed. Present your digital ticket pass at the venue entrance.
         </p>
 
         {/* Confirmation Metadata Grid */}

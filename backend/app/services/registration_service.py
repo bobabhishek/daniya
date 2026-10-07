@@ -9,7 +9,7 @@ from ..models.registration import (
     RegistrationStatus,
     VerificationStatus
 )
-from ..models.participant import ParticipantRecord
+from ..models.participant import ParticipantRecord, ParticipantInput, normalize_indian_phone_number
 from ..services.pricing_service import PricingService
 from ..services.id_service import IdService
 from ..services.ticket_service import TicketService
@@ -48,6 +48,7 @@ class RegistrationService:
         # 3. Create Participant Records (tickets are NOT generated until payment verification succeeds)
         participant_records: List[ParticipantRecord] = []
         for idx, p_info in enumerate(breakdown["participant_details"]):
+            participant_input = request.participants[idx]
             precord = ParticipantRecord(
                 id=p_info["id"],
                 participantId=p_info["participantId"],
@@ -55,6 +56,7 @@ class RegistrationService:
                 phone=p_info.get("phone") or None,
                 age=p_info["age"],
                 dob=p_info["dob"],
+                phoneNumber=normalize_indian_phone_number(participant_input.phoneNumber),
                 category=p_info["category"],
                 price=p_info["price"],
                 ticketId=None,  # Assigned ONLY after payment verification succeeds!
@@ -103,6 +105,99 @@ class RegistrationService:
         db = get_db()
         doc = db.collection("registrations").document(registration_id).get()
         return doc.to_dict() if doc.exists else None
+
+    @staticmethod
+    def update_registration(registration_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        db = get_db()
+        doc_ref = db.collection("registrations").document(registration_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            return None
+
+        data = doc.to_dict()
+        if "participants" not in updates:
+            raise ValueError("Only participant updates are supported for this endpoint.")
+
+        incoming_participants = updates.get("participants")
+        if not isinstance(incoming_participants, list):
+            raise ValueError("participants must be a list.")
+
+        current_participants = list(data.get("participants") or [])
+        updated_participants: List[Dict[str, Any]] = []
+
+        for idx, participant_payload in enumerate(incoming_participants):
+            if not isinstance(participant_payload, dict):
+                raise ValueError("Each participant update must be an object.")
+
+            participant_id = str(participant_payload.get("participantId") or participant_payload.get("id") or f"p{idx + 1}")
+            current = next((p for p in current_participants if str(p.get("participantId") or p.get("id") or f"p{idx + 1}") == participant_id), None)
+            if current is None and idx < len(current_participants):
+                current = current_participants[idx]
+
+            if current is None:
+                current = {"id": participant_id, "participantId": participant_id}
+
+            merged = dict(current)
+            merged["id"] = participant_id
+            merged["participantId"] = participant_id
+
+            if "name" in participant_payload:
+                merged["name"] = str(participant_payload["name"]).strip()
+            if "dob" in participant_payload:
+                merged["dob"] = str(participant_payload["dob"]).strip()
+            if "phoneNumber" in participant_payload and participant_payload.get("phoneNumber") is not None:
+                merged["phoneNumber"] = normalize_indian_phone_number(str(participant_payload["phoneNumber"]))
+            elif "phoneNumber" in participant_payload and participant_payload.get("phoneNumber") in (None, ""):
+                merged["phoneNumber"] = None
+            if "idProofType" in participant_payload:
+                merged["idProofType"] = participant_payload["idProofType"]
+
+            if merged.get("dob"):
+                merged["age"] = max(1, int(PricingService.calculate_breakdown([
+                    ParticipantInput(
+                        name=merged.get("name") or "Participant",
+                        dob=merged["dob"],
+                        phoneNumber=merged.get("phoneNumber") or "9876543210",
+                        age=merged.get("age")
+                    )
+                ])["participant_details"][0]["age"]))
+
+            updated_participants.append(merged)
+
+        if not updated_participants:
+            raise ValueError("At least one participant is required.")
+
+        breakdown = PricingService.calculate_breakdown([
+            ParticipantInput(
+                name=p.get("name") or "Participant",
+                dob=p.get("dob") or "01/01/2000",
+                phoneNumber=p.get("phoneNumber") or "9876543210",
+                age=p.get("age")
+            )
+            for p in updated_participants
+        ], apply_student_discount=False)
+
+        for idx, p in enumerate(updated_participants):
+            participant_breakdown = breakdown["participant_details"][idx]
+            p["age"] = participant_breakdown["age"]
+            p["category"] = participant_breakdown["category"]
+            p["price"] = participant_breakdown["price"]
+            p["idProofType"] = participant_breakdown.get("idProofType") or p.get("idProofType") or "Aadhaar Card (with DOB)"
+            p["phoneNumber"] = normalize_indian_phone_number(p.get("phoneNumber") or "") if p.get("phoneNumber") else None
+
+        data["participants"] = updated_participants
+        data["participantsSummary"] = ", ".join([p.get("name") or "Participant" for p in updated_participants])
+        data["participantCount"] = len(updated_participants)
+        data["count"] = len(updated_participants)
+        data["under20Count"] = breakdown["under_20_count"]
+        data["above20Count"] = breakdown["above_20_count"]
+        data["expectedAmount"] = breakdown["total_amount"]
+        data["totalAmount"] = breakdown["total_amount"]
+        data["amount"] = breakdown["total_amount"]
+        data["updatedAt"] = datetime.now().isoformat()
+
+        doc_ref.set(data)
+        return data
 
     @staticmethod
     def mark_payment_verified(
@@ -154,35 +249,83 @@ class RegistrationService:
         return data
 
     @staticmethod
-    def list_user_registrations(user_id: str, user_email: Optional[str] = None) -> List[Dict[str, Any]]:
-        db = get_db()
-        results: Dict[str, Dict[str, Any]] = {}
-        user_email_lower = (user_email or "").strip().lower()
-
-        # Scan all registrations and match by userId OR userEmail (case-insensitive)
-        # This is safe for memory DB and Firestore fallback. For large-scale Firestore
-        # use separate indexed queries per field.
-        for doc in db.collection("registrations").stream():
+    def mark_payment_failed(
+        registration_id: str,
+        entered_amount: Optional[int] = None,
+        ocr_amount: Optional[int] = None,
+        reason: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Record a failed payment verification attempt on the registration dossier.
+        Ensures registration remains unconfirmed (PENDING) and ticketIds strictly empty.
+        """
+        try:
+            db = get_db()
+            doc_ref = db.collection("registrations").document(registration_id)
+            doc = doc_ref.get()
+            if not doc.exists:
+                return None
             data = doc.to_dict()
-            if not data:
-                continue
-            reg_id = data.get("registrationId", "")
-            stored_uid = data.get("userId") or ""
-            stored_email = (data.get("userEmail") or "").strip().lower()
+            # Never downgrade a previously verified registration
+            if data.get("verificationStatus") == VerificationStatus.VERIFIED.value:
+                return data
 
-            uid_match = stored_uid and stored_uid == user_id
-            email_match = user_email_lower and stored_email == user_email_lower
+            now_iso = datetime.now().isoformat()
+            data["paymentStatus"] = PaymentStatus.PENDING.value
+            data["verificationStatus"] = VerificationStatus.FAILED.value
+            data["registrationStatus"] = RegistrationStatus.PENDING.value
+            data["enteredAmount"] = entered_amount
+            data["ocrAmount"] = ocr_amount
+            data["mismatchReason"] = reason
+            data["ticketIds"] = []
+            data["updatedAt"] = now_iso
 
-            if uid_match or email_match:
-                results[reg_id] = data
+            doc_ref.set(data)
+            return data
+        except Exception as e:
+            logger.error(f"Error marking payment failed for {registration_id}: {e}")
+            return None
 
-        # Sort descending by createdAt
-        sorted_list = sorted(
-            list(results.values()),
-            key=lambda x: x.get("createdAt", ""),
-            reverse=True
-        )
-        return sorted_list
+
+    @staticmethod
+    def list_user_registrations(user_id: str, user_email: Optional[str] = None) -> List[Dict[str, Any]]:
+        try:
+            db = get_db()
+            results: Dict[str, Dict[str, Any]] = {}
+            user_email_lower = (user_email or "").strip().lower()
+            user_id_value = (user_id or "").strip()
+
+            for doc in db.collection("registrations").stream():
+                data = doc.to_dict()
+                if not data:
+                    continue
+                reg_id = data.get("registrationId", "")
+                stored_uid = (data.get("userId") or "").strip()
+                stored_email = (data.get("userEmail") or "").strip().lower()
+
+                uid_match = bool(user_id_value) and stored_uid == user_id_value
+                email_match = bool(user_email_lower) and stored_email == user_email_lower
+
+                if uid_match:
+                    results[reg_id] = data
+                    continue
+
+                # If a userId is present, do not allow a different email to pull in another account's records.
+                if user_id_value:
+                    continue
+
+                if email_match:
+                    results[reg_id] = data
+
+            sorted_list = sorted(
+                list(results.values()),
+                key=lambda x: x.get("createdAt", ""),
+                reverse=True
+            )
+            return sorted_list
+        except Exception as e:
+            logger.error(f"Error in list_user_registrations: {e}", exc_info=True)
+            return []
 
     @staticmethod
     def list_all_registrations() -> List[Dict[str, Any]]:

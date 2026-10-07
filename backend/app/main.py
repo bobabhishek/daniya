@@ -1,8 +1,5 @@
 import os
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
+import time
 
 import logging
 from contextlib import asynccontextmanager
@@ -10,7 +7,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from .config import settings
-from .firebase import init_firebase, get_db
+from .firebase import init_firebase, get_db, _firestore_db
 from .routes import registrations, payments, users, admin, tickets, auth
 
 # Setup logging
@@ -27,25 +24,33 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing Garba & Dandiya 2026 Backend...")
     init_firebase()
     
-    # Pre-seed sample registrations if database is empty
-    db = get_db()
-    existing_docs = list(db.collection("registrations").stream())
-    if len(existing_docs) == 0:
-        logger.info("Seeding initial reference registrations...")
+    # Hosted HF OCR is the production path.
+    if settings.HF_TOKEN:
+        logger.info("Hosted Hugging Face OCR provider configured for production OCR requests.")
+    else:
+        logger.warning("HF_TOKEN is not configured; hosted OCR will reject requests safely until a token is added.")
+    
+    # Pre-seed sample registrations in development mode only
+    # DISABLED: Start with clean database
+    if False and settings.ENVIRONMENT != "production":
+        db = get_db()
         from .seed_data import SEED_REGISTRATIONS
         from .services.ticket_service import TicketService
         for item in SEED_REGISTRATIONS:
             reg_id = item["registrationId"]
-            db.collection("registrations").document(reg_id).set(item)
-            for p in item.get("participants", []):
-                t_obj = TicketService.build_ticket(
-                    registration_id=reg_id,
-                    ticket_id=p["ticketId"],
-                    participant=p,
-                    payment_status=item.get("paymentStatus", "PAID")
-                )
-                TicketService.save_tickets([t_obj])
-        logger.info(f"Seeded {len(SEED_REGISTRATIONS)} records successfully.")
+            doc_snap = db.collection("registrations").document(reg_id).get()
+            if not doc_snap.exists:
+                db.collection("registrations").document(reg_id).set(item)
+                for p in item.get("participants", []):
+                    t_obj = TicketService.build_ticket(
+                        registration_id=reg_id,
+                        ticket_id=p["ticketId"],
+                        participant=p,
+                        payment_status=item.get("paymentStatus", "PAID")
+                    )
+                    TicketService.save_tickets([t_obj])
+                logger.info(f"Seeded reference registration {reg_id} successfully.")
+
         from .services.id_service import IdService
         max_seq = IdService._scan_max_registration_sequence(db)
         if max_seq > 0:
@@ -68,21 +73,108 @@ app = FastAPI(
 # Security Response Headers Middleware
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        logger.error(f"Error in request pipeline: {exc}", exc_info=True)
+        origin = request.headers.get("origin")
+        allowed = settings.cors_origins
+        headers = {
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "X-XSS-Protection": "1; mode=block",
+            "Referrer-Policy": "strict-origin-when-cross-origin"
+        }
+        if origin and ("*" in allowed or origin.strip().rstrip("/") in allowed or settings.ENVIRONMENT != "production"):
+            headers["Access-Control-Allow-Origin"] = origin
+            headers["Access-Control-Allow-Credentials"] = "true"
+            headers["Vary"] = "Origin"
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "An internal error occurred processing your request. Please try again."},
+            headers=headers
+        )
+
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
 
-# CORS Middleware
+# Real-time HTTP Request & Status Code Logging Middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    t_start = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        duration_ms = (time.perf_counter() - t_start) * 1000
+        client_ip = request.client.host if request.client else "unknown"
+        print(f"[ERR] [HTTP] {request.method:<6} {request.url.path:<30} -> 500 ({duration_ms:.1f}ms) [{client_ip}] [Exception: {exc}]", flush=True)
+        raise exc
+
+    duration_ms = (time.perf_counter() - t_start) * 1000
+    code = response.status_code
+    if code < 300:
+        icon = "🟢"
+    elif code < 400:
+        icon = "🔵"
+    elif code < 500:
+        icon = "🟡"
+    else:
+        icon = "🔴"
+
+    client_ip = request.client.host if request.client else "unknown"
+    try:
+        print(f"{icon} [HTTP] {request.method:<6} {request.url.path:<30} -> {code} ({duration_ms:.1f}ms) [{client_ip}]", flush=True)
+    except (UnicodeEncodeError, Exception):
+        tag = "[OK]" if code < 400 else "[ERR]"
+        print(f"{tag} [HTTP] {request.method:<6} {request.url.path:<30} -> {code} ({duration_ms:.1f}ms) [{client_ip}]", flush=True)
+    return response
+
+# CORS Middleware: Authoritatively configured with allowed origins
+cors_list = settings.cors_origins
+logger.info(f"Initializing CORS with allowed origins: {cors_list}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins or ["*"],
+    allow_origins=cors_list or ["*"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$" if settings.ENVIRONMENT != "production" else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,
 )
+
+
+@app.exception_handler(Exception)
+async def global_unhandled_exception_handler(request: Request, exc: Exception):
+    """
+    Ensure all unhandled 500 exceptions return proper JSON and CORS headers
+    to prevent browsers from masking backend errors as CORS failures.
+    """
+    logger.error(f"Unhandled Exception on {request.method} {request.url.path}: {exc}", exc_info=True)
+    origin = request.headers.get("origin")
+    allowed = settings.cors_origins
+    cors_origin = None
+    if origin:
+        cleaned = origin.strip().rstrip("/")
+        if "*" in allowed or cleaned in allowed or settings.ENVIRONMENT != "production":
+            cors_origin = origin
+
+    headers = {}
+    if cors_origin:
+        headers["Access-Control-Allow-Origin"] = cors_origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+        headers["Vary"] = "Origin"
+
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "An internal error occurred processing your request. Please try again."},
+        headers=headers
+    )
+
 
 # Register Routers
 app.include_router(auth.router)
@@ -107,11 +199,24 @@ async def root():
 @app.get("/health", tags=["Health"])
 @app.get("/api/health", tags=["Health"])
 async def health_check():
+    db = get_db()
+    db_source = "firestore" if _firestore_db is not None else "local-memory-fallback"
+    try:
+        registration_count = len(list(db.collection("registrations").stream()))
+        ticket_count = len(list(db.collection("tickets").stream()))
+    except Exception:
+        registration_count = 0
+        ticket_count = 0
+
     return {
         "status": "healthy",
         "environment": settings.ENVIRONMENT,
         "adminConfigured": bool(settings.ADMIN_EMAIL),
-        "adminEmail": settings.ADMIN_EMAIL
+        "adminEmail": settings.ADMIN_EMAIL,
+        "databaseSource": db_source,
+        "registrationCount": registration_count,
+        "ticketCount": ticket_count,
+        "commit": "7a35fe1"
     }
 
 

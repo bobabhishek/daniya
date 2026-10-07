@@ -21,9 +21,38 @@ ADMIN_TOKEN = "test_token_admin_1:teamredhawkz@gmail.com:Organizer Admin"
 
 
 @pytest.fixture(autouse=True)
-def clean_memory_db():
+def clean_memory_db(monkeypatch, tmp_path):
+    from app import firebase
+    monkeypatch.setattr(firebase, "init_firebase", lambda: None)
+    firebase._firebase_app = None
+    firebase._firestore_db = None
+    memory_db._persistence_file = str(tmp_path / "local_firestore_db.json")
     memory_db.clear()
     yield
+    memory_db.clear()
+
+
+def test_production_missing_firebase_raises_clear_error(monkeypatch):
+    """Production must fail closed when Firebase Admin is unavailable rather than silently using local persistence."""
+    from app import firebase
+    from app.config import settings
+
+    original_environment = settings.ENVIRONMENT
+    original_app = firebase._firebase_app
+    original_db = firebase._firestore_db
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production", raising=False)
+    monkeypatch.setattr(firebase, "init_firebase", lambda: None, raising=False)
+    firebase._firebase_app = None
+    firebase._firestore_db = None
+
+    try:
+        with pytest.raises(RuntimeError, match="strictly disabled in production|not connected in production"):
+            firebase.get_db()
+    finally:
+        monkeypatch.setattr(settings, "ENVIRONMENT", original_environment, raising=False)
+        firebase._firebase_app = original_app
+        firebase._firestore_db = original_db
 
 
 def generate_synthetic_receipt_bytes(amount: int, payee: str = "ARPITH MANOHAR", utr: str = "428172938491") -> bytes:
@@ -48,10 +77,16 @@ def test_health_check():
     data = response.json()
     assert data["status"] == "healthy"
     assert data["adminEmail"] == "teamredhawkz@gmail.com"
+    assert data["databaseSource"] in {"firestore", "local-memory-fallback"}
+    assert isinstance(data.get("registrationCount"), int)
+    assert isinstance(data.get("ticketCount"), int)
 
 
 def test_id_generation():
     """Verify sequential registration and ticket ID formats."""
+    memory_db.clear()
+    memory_db.collection("counters").document("registration_sequence").set({"current": 0}, merge=True)
+
     reg_id_1 = IdService.get_next_registration_id()
     assert reg_id_1 == "KD-000001"
 
@@ -76,6 +111,38 @@ def test_age_calculation_from_dob():
     assert age_32 >= 31 and age_32 <= 33
 
 
+def test_list_user_registrations_is_exact_to_user_identity(monkeypatch):
+    """Each login should only see the registrations tied to its exact userId or email, not another account's data."""
+    from app.services import registration_service
+    from app.services.registration_service import RegistrationService
+
+    monkeypatch.setattr(registration_service, "get_db", lambda: memory_db)
+
+    memory_db.collection("registrations").document("REG-A").set({
+        "registrationId": "REG-A",
+        "userId": "user-akash",
+        "userEmail": "akash@example.com",
+        "userName": "Akash",
+        "createdAt": "2026-10-01T10:00:00"
+    })
+    memory_db.collection("registrations").document("REG-B").set({
+        "registrationId": "REG-B",
+        "userId": "user-kamath",
+        "userEmail": "kamath@example.com",
+        "userName": "Kamath",
+        "createdAt": "2026-10-02T10:00:00"
+    })
+
+    akash_regs = RegistrationService.list_user_registrations(user_id="user-akash", user_email="akash@example.com")
+    assert [r["registrationId"] for r in akash_regs] == ["REG-A"]
+
+    kamath_regs = RegistrationService.list_user_registrations(user_id="user-kamath", user_email="kamath@example.com")
+    assert [r["registrationId"] for r in kamath_regs] == ["REG-B"]
+
+    mixed_regs = RegistrationService.list_user_registrations(user_id="user-other", user_email="kamath@example.com")
+    assert [r["registrationId"] for r in mixed_regs] == []
+
+
 def test_registration_creation_does_not_issue_tickets():
     """
     CRITICAL RULE TEST:
@@ -84,9 +151,9 @@ def test_registration_creation_does_not_issue_tickets():
     """
     payload = {
         "participants": [
-            {"name": "Participant A", "dob": "14/03/2008", "age": 18},
-            {"name": "Participant B", "dob": "05/11/1994", "age": 32},
-            {"name": "Participant C", "dob": "22/09/2006", "age": 20}
+            {"name": "Participant A", "dob": "14/03/2008", "age": 18, "phoneNumber": "9876543210"},
+            {"name": "Participant B", "dob": "05/11/1994", "age": 32, "phoneNumber": "9123456789"},
+            {"name": "Participant C", "dob": "22/09/2006", "age": 20, "phoneNumber": "9988776655"}
         ],
         "paymentMethod": "UPI (Official QR)"
     }
@@ -119,6 +186,179 @@ def test_registration_creation_does_not_issue_tickets():
     assert ticket_lookup.status_code == 404
 
 
+def test_registration_requires_valid_indian_phone_number():
+    """Each participant must include a valid 10-digit Indian mobile number."""
+    payload = {
+        "participants": [
+            {"name": "Participant A", "dob": "14/03/2008", "phoneNumber": "987654321"},
+            {"name": "Participant B", "dob": "05/11/1994", "phoneNumber": "98765abc12"}
+        ]
+    }
+
+    response = client.post(
+        "/api/registrations",
+        json=payload,
+        headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
+    )
+
+    assert response.status_code == 422
+
+
+def test_admin_can_update_registration_phone_number_in_database():
+    """Admin update endpoint must persist participant phone numbers and reflect saved values."""
+    create_payload = {
+        "participants": [
+            {"name": "Participant A", "dob": "14/03/2008", "phoneNumber": "9876543210"},
+            {"name": "Participant B", "dob": "05/11/1994", "phoneNumber": "9123456789"}
+        ]
+    }
+
+    create_response = client.post(
+        "/api/registrations",
+        json=create_payload,
+        headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
+    )
+    assert create_response.status_code == 201
+    reg_id = create_response.json()["registrationId"]
+
+    update_response = client.patch(
+        f"/api/admin/registrations/{reg_id}",
+        json={
+            "participants": [
+                {"participantId": "p1", "name": "Participant A", "dob": "14/03/2008", "phoneNumber": "9999999999"},
+                {"participantId": "p2", "name": "Participant B", "dob": "05/11/1994", "phoneNumber": "9123456789"}
+            ]
+        },
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+    )
+
+    assert update_response.status_code == 200
+    saved = update_response.json()
+    assert saved["participants"][0]["phoneNumber"] == "9999999999"
+
+    db_record = client.get(
+        f"/api/admin/registrations/{reg_id}",
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+    )
+    assert db_record.status_code == 200
+    assert db_record.json()["participants"][0]["phoneNumber"] == "9999999999"
+
+
+def test_admin_database_crud_and_field_management():
+    """Admin can list, create, edit, and delete application documents through the protected backend API."""
+    list_response = client.get("/api/admin/db/collections", headers={"Authorization": f"Bearer {ADMIN_TOKEN}"})
+    assert list_response.status_code == 200
+    collections = list_response.json()
+    assert "registrations" in collections
+    assert "tickets" in collections
+    assert "receipts" in collections
+    assert "counters" in collections
+
+    create_response = client.post(
+        "/api/admin/db/tickets",
+        json={
+            "documentId": "DB-TICKET-001",
+            "data": {"ticketId": "DB-TICKET-001", "participantName": "Asha", "status": "ACTIVE"}
+        },
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["ticketId"] == "DB-TICKET-001"
+
+    update_response = client.patch(
+        "/api/admin/db/tickets/DB-TICKET-001",
+        json={"data": {"ticketId": "DB-TICKET-001", "participantName": "Rahul", "status": "ACTIVE", "mobileNumber": "9999999999"}},
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+    )
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["participantName"] == "Rahul"
+    assert updated["mobileNumber"] == "9999999999"
+
+    rename_response = client.patch(
+        "/api/admin/db/tickets/DB-TICKET-001",
+        json={"data": {"ticketId": "DB-TICKET-001", "participantName": "Rahul", "status": "ACTIVE", "mobileNumber": "9999999999", "phone": "9876543210"}},
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+    )
+    assert rename_response.status_code == 200
+    assert "phone" in rename_response.json()
+
+    delete_response = client.delete(
+        "/api/admin/db/tickets/DB-TICKET-001",
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+    )
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted"] is True
+
+
+def test_admin_database_routes_are_protected():
+    """Non-admin and unauthenticated requests must be blocked by the backend authorization layer."""
+    response = client.post(
+        "/api/admin/db/registrations",
+        json={"documentId": "KD-010001", "data": {"registrationId": "KD-010001"}},
+        headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
+    )
+    assert response.status_code == 403
+
+    unauth = client.post(
+        "/api/admin/db/registrations",
+        json={"documentId": "KD-010002", "data": {"registrationId": "KD-010002"}}
+    )
+    assert unauth.status_code == 401
+
+
+def test_deleting_registration_does_not_reset_registration_sequence_counter():
+    """Deleting a registration must not rollback or decrement the monotonic registration sequence counter."""
+    memory_db.collection("counters").document("registration_sequence").set({"current": 9}, merge=True)
+    memory_db.collection("registrations").document("KD-000009").set({"registrationId": "KD-000009", "count": 1})
+
+    response = client.delete(
+        "/api/admin/db/registrations/KD-000009",
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+    )
+    assert response.status_code == 200
+
+    counter = memory_db.collection("counters").document("registration_sequence").get().to_dict()
+    assert counter["current"] == 9
+
+
+def test_admin_database_uses_firestore_as_source_of_truth_for_excel_data():
+    """The Excel export should reflect the latest Firestore state rather than stale frontend memory."""
+    memory_db.collection("registrations").document("KD-000101").set({
+        "registrationId": "KD-000101",
+        "count": 2,
+        "participantsSummary": "Asha, Rahul",
+        "amount": 598,
+        "paymentStatus": "PAID",
+        "verificationStatus": "VERIFIED",
+        "participants": [{"name": "Asha", "phoneNumber": "9999999999"}, {"name": "Rahul", "phoneNumber": "8888888888"}],
+        "createdAt": "2026-10-07T12:00:00"
+    })
+
+    from app.services.excel_export_service import ExcelExportService
+    excel_bytes = ExcelExportService.generate_master_excel(
+        [memory_db.collection("registrations").document("KD-000101").get().to_dict()],
+        base_url="http://localhost:5173"
+    )
+    assert isinstance(excel_bytes, (bytes, bytearray))
+    assert len(excel_bytes) > 1000
+
+
+def test_empty_database_keeps_zero_dashboard_stats():
+    """The empty production database must resolve to zeroes without any seeding or dummy records."""
+    stats = memory_db.collection("registrations").stream()
+    assert sum(1 for _ in stats) == 0
+
+    from app.services.registration_service import RegistrationService
+    dashboard = RegistrationService.calculate_admin_stats()
+    assert dashboard["totalRegistrations"] == 0
+    assert dashboard["totalParticipants"] == 0
+    assert dashboard["totalRevenue"] == 0
+    assert dashboard["paidCount"] == 0
+    assert dashboard["pendingCount"] == 0
+
+
 def test_three_way_amount_match_success():
     """
     TEST THREE-WAY MATCH (SUCCESS):
@@ -133,9 +373,9 @@ def test_three_way_amount_match_success():
     # 1. Create registration for 3 participants
     payload = {
         "participants": [
-            {"name": "Participant A", "dob": "14/03/2008"},
-            {"name": "Participant B", "dob": "05/11/1994"},
-            {"name": "Participant C", "dob": "22/09/2006"}
+            {"name": "Participant A", "dob": "14/03/2008", "phoneNumber": "9876543210"},
+            {"name": "Participant B", "dob": "05/11/1994", "phoneNumber": "9123456789"},
+            {"name": "Participant C", "dob": "22/09/2006", "phoneNumber": "9988776655"}
         ]
     }
     create_res = client.post(
@@ -184,7 +424,7 @@ def test_three_way_mismatch_user_entered_wrong_amount():
     """
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": f"P{i}", "dob": "01/01/2000"} for i in range(3)]},
+        json={"participants": [{"name": f"P{i}", "dob": "01/01/2000", "phoneNumber": ["9876543210", "9123456789", "9988776655"][i]} for i in range(3)]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -222,7 +462,7 @@ def test_three_way_mismatch_ocr_wrong_amount():
     """
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": f"P{i}", "dob": "01/01/2000"} for i in range(3)]},
+        json={"participants": [{"name": f"P{i}", "dob": "01/01/2000", "phoneNumber": ["9876543210", "9123456789", "9988776655"][i]} for i in range(3)]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -256,7 +496,7 @@ def test_ocr_failure_on_unreadable_image():
     """
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": "Attendee", "dob": "01/01/2000"}]},
+        json={"participants": [{"name": "Attendee", "dob": "01/01/2000", "phoneNumber": "9876543210"}]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -291,7 +531,7 @@ def test_admin_can_view_verified_receipt():
     # 1. Create and verify booking
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": "Attendee", "dob": "01/01/2000"}]},
+        json={"participants": [{"name": "Attendee", "dob": "01/01/2000", "phoneNumber": "9876543210"}]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -325,7 +565,7 @@ def test_user_my_passes_and_my_tickets():
     # 1. Create and verify booking for User A
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": "Kamath Abhishek", "dob": "15/05/2001"}]},
+        json={"participants": [{"name": "Kamath Abhishek", "dob": "15/05/2001", "phoneNumber": "9876543210"}]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -377,7 +617,7 @@ def test_missing_receipt_returns_receipt_unavailable():
     # Create booking without uploading receipt
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": "No Receipt Attendee", "dob": "01/01/2000"}]},
+        json={"participants": [{"name": "No Receipt Attendee", "dob": "01/01/2000", "phoneNumber": "9876543210"}]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -425,7 +665,7 @@ def test_public_gate_qr_ticket_verification():
     # 1. Create and verify a ticket
     create_res = client.post(
         "/api/registrations",
-        json={"participants": [{"name": "Gate Test Attendee", "dob": "01/01/2000"}]},
+        json={"participants": [{"name": "Gate Test Attendee", "dob": "01/01/2000", "phoneNumber": "9876543210"}]},
         headers={"Authorization": f"Bearer {USER_A_TOKEN}"}
     )
     reg_id = create_res.json()["registrationId"]
@@ -460,7 +700,7 @@ def test_standard_online_pricing_for_under_20():
     from app.models.participant import ParticipantInput
 
     # 18-year-old participant
-    p = ParticipantInput(name="Young Dancer", dob="01/01/2008")
+    p = ParticipantInput(name="Young Dancer", dob="01/01/2008", phoneNumber="9876543210")
     breakdown = PricingService.calculate_breakdown([p], apply_student_discount=False)
     assert breakdown["total_amount"] == 299
     assert breakdown["participant_details"][0]["category"] in ("STUDENT", "UNDER_20")

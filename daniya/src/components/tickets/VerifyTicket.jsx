@@ -4,20 +4,7 @@ import {
   Calendar, MapPin, Clock, User, Hash, CreditCard
 } from 'lucide-react';
 import { EVENT_CONFIG } from '../../config/eventConfig';
-
-/**
- * VerifyTicket – QR gate scanner page.
- *
- * Reached via:  #/verify-ticket/:ticketId
- * The QR on each ticket encodes:
- *   <origin>/verify-ticket/KD-XXXXXX-T01
- *
- * Fetches ticket data from the backend and renders a clean human-readable
- * PASS VERIFICATION screen.
- * Does NOT download JSON, show raw DB fields, or expose internal data.
- */
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import { API_BASE_URL as API_BASE } from '../../config/apiConfig.js';
 
 async function fetchTicketFromBackend(ticketId) {
   const res = await fetch(`${API_BASE}/api/tickets/${encodeURIComponent(ticketId)}`);

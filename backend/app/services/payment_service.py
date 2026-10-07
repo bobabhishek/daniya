@@ -45,8 +45,12 @@ class PaymentService:
         Executes strict three-way verification:
         1. EXPECTED AMOUNT (Authoritative from Step 1 / backend registration)
         2. USER ENTERED AMOUNT (Entered manually after receipt upload)
-        3. OCR AMOUNT (Extracted by RapidOCR from uploaded screenshot)
+        3. OCR AMOUNT (Extracted from the uploaded screenshot via hosted OCR)
         """
+        import time
+        t_start = time.perf_counter()
+
+        t_receipt_start = time.perf_counter()
         record = RegistrationService.get_registration(registration_id)
         if not record:
             return {
@@ -62,8 +66,11 @@ class PaymentService:
                 "mismatchReason": "Registration record does not exist."
             }
 
-        # Check if already verified
+        # Check if already verified (Idempotency & Duplicate Submission Protection)
         if record.get("verificationStatus") == "VERIFIED" and record.get("ticketIds"):
+            full_tickets = TicketService.list_tickets_for_registration(registration_id)
+            t_total_ms = (time.perf_counter() - t_start) * 1000
+            logger.info(f"[PAYMENT] already verified (idempotent return): {t_total_ms:.1f} ms")
             return {
                 "success": True,
                 "registrationId": registration_id,
@@ -77,11 +84,11 @@ class PaymentService:
                 "transactionId": record.get("transactionId"),
                 "receiptPath": record.get("receiptPath"),
                 "ticketIds": record.get("ticketIds", []),
+                "tickets": [t if isinstance(t, dict) else t.model_dump() for t in full_tickets],
                 "message": "Payment already verified. Tickets are active."
             }
 
         # 1. Authoritative Expected Amount
-        # If Arpith manually approved a concession, finalApprovedAmount takes precedence
         expected_amount = (
             record.get("finalApprovedAmount")
             or record.get("expectedAmount")
@@ -89,37 +96,45 @@ class PaymentService:
             or record.get("amount")
             or 0
         )
+        t_receipt_ms = (time.perf_counter() - t_receipt_start) * 1000
 
         # 2. Extract OCR Amount and Metadata from Screenshot
-        ocr_result = OcrService.process_receipt(image_bytes)
+        t_ocr_start = time.perf_counter()
+        ocr_result = OcrService.process_receipt(image_bytes, expected_amount=expected_amount)
         ocr_amount = ocr_result.get("detected_amount")
         ocr_confidence = ocr_result.get("confidence", 0.0)
         upi_ref = ocr_result.get("upi_reference")
+        t_ocr_ms = (time.perf_counter() - t_ocr_start) * 1000
+
+        # 3. Three-Way Amount Comparison
+        t_val_start = time.perf_counter()
+        entered_matches = (entered_amount == expected_amount)
+        ocr_matches = (ocr_amount is not None) and (ocr_amount == expected_amount)
+        all_three_match = entered_matches and ocr_matches
+        t_val_ms = (time.perf_counter() - t_val_start) * 1000
 
         logger.info(
             f"Verification Attempt for {registration_id}: "
             f"Expected={expected_amount}, Entered={entered_amount}, OCR={ocr_amount} (conf={ocr_confidence})"
         )
 
-        # 3. Three-Way Amount Comparison
-        entered_matches = (entered_amount == expected_amount)
-        ocr_matches = (ocr_amount is not None) and (ocr_amount == expected_amount)
-        all_three_match = entered_matches and ocr_matches
-
         # =========================================================================
         # CASE A: ALL THREE VALUES MATCH -> VERIFIED
         # =========================================================================
         if all_three_match:
-            logger.info(f"Payment MATCH verified for {registration_id}! Saving receipt locally...")
+            logger.info(f"Payment MATCH verified for {registration_id}! Saving receipt...")
 
-            # Save verified receipt locally to receipts/{registrationId}/payment_receipt.jpg
+            # Save verified receipt locally and to Google Cloud store
+            t_storage_start = time.perf_counter()
             receipt_path = ReceiptStorageService.save_verified_receipt(
                 registration_id=registration_id,
                 image_bytes=image_bytes,
                 filename=filename
             )
+            t_storage_ms = (time.perf_counter() - t_storage_start) * 1000
 
             # Issue tickets & update Firestore
+            t_ticket_start = time.perf_counter()
             updated_record = RegistrationService.mark_payment_verified(
                 registration_id=registration_id,
                 entered_amount=entered_amount,
@@ -129,11 +144,22 @@ class PaymentService:
                 transaction_id=upi_ref,
                 original_filename=filename
             )
+            t_ticket_ms = (time.perf_counter() - t_ticket_start) * 1000
+            t_firestore_ms = t_storage_ms + t_ticket_ms
 
             ticket_ids = updated_record.get("ticketIds", []) if updated_record else []
 
             # Fetch full ticket objects for immediate frontend display
             full_tickets = TicketService.list_tickets_for_registration(registration_id)
+            t_total_ms = (time.perf_counter() - t_start) * 1000
+
+            # Structured Server-Side Timing Logs
+            logger.info(f"[PAYMENT] receipt handling: {t_receipt_ms:.1f} ms")
+            logger.info(f"[PAYMENT] processing: {t_ocr_ms:.1f} ms")
+            logger.info(f"[PAYMENT] validation: {t_val_ms:.1f} ms")
+            logger.info(f"[PAYMENT] Firestore: {t_firestore_ms:.1f} ms")
+            logger.info(f"[PAYMENT] ticket generation: {t_ticket_ms:.1f} ms")
+            logger.info(f"[PAYMENT] total: {t_total_ms:.1f} ms")
 
             return {
                 "success": True,
@@ -145,11 +171,21 @@ class PaymentService:
                 "paymentStatus": "PAID",
                 "verificationStatus": "VERIFIED",
                 "registrationStatus": "CONFIRMED",
-                "transactionId": upi_ref or updated_record.get("transactionId"),
+                "transactionId": upi_ref or (updated_record.get("transactionId") if updated_record else None),
                 "receiptPath": receipt_path,
                 "ticketIds": ticket_ids,
                 "tickets": [t if isinstance(t, dict) else t.model_dump() for t in full_tickets],
-                "message": "Payment verified successfully! Your tickets have been issued."
+                "message": "Payment verified successfully! Your tickets have been issued.",
+                "details": {
+                    "timings": {
+                        "receipt_handling_ms": round(t_receipt_ms, 1),
+                        "processing_ms": round(t_ocr_ms, 1),
+                        "validation_ms": round(t_val_ms, 1),
+                        "firestore_ms": round(t_firestore_ms, 1),
+                        "ticket_generation_ms": round(t_ticket_ms, 1),
+                        "total_ms": round(t_total_ms, 1)
+                    }
+                }
             }
 
         # =========================================================================
@@ -182,6 +218,25 @@ class PaymentService:
             f"(Expected: {expected_amount}, Entered: {entered_amount}, Detected: {ocr_amount})"
         )
 
+        # Record failed attempt on registration dossier (keeps tickets empty and status unconfirmed)
+        t_db_start = time.perf_counter()
+        RegistrationService.mark_payment_failed(
+            registration_id=registration_id,
+            entered_amount=entered_amount,
+            ocr_amount=ocr_amount,
+            reason=mismatch_reason
+        )
+        t_firestore_ms = (time.perf_counter() - t_db_start) * 1000
+        t_total_ms = (time.perf_counter() - t_start) * 1000
+
+        # Structured Server-Side Timing Logs for rejection case
+        logger.info(f"[PAYMENT] receipt handling: {t_receipt_ms:.1f} ms")
+        logger.info(f"[PAYMENT] processing: {t_ocr_ms:.1f} ms")
+        logger.info(f"[PAYMENT] validation: {t_val_ms:.1f} ms")
+        logger.info(f"[PAYMENT] Firestore: {t_firestore_ms:.1f} ms")
+        logger.info(f"[PAYMENT] ticket generation: 0.0 ms")
+        logger.info(f"[PAYMENT] total: {t_total_ms:.1f} ms")
+
         return {
             "success": False,
             "registrationId": registration_id,
@@ -194,5 +249,15 @@ class PaymentService:
             "registrationStatus": "PENDING",
             "ticketIds": [],
             "message": "Payment verification failed. Payment amount could not be verified.",
-            "mismatchReason": mismatch_reason
+            "mismatchReason": mismatch_reason,
+            "details": {
+                "timings": {
+                    "receipt_handling_ms": round(t_receipt_ms, 1),
+                    "processing_ms": round(t_ocr_ms, 1),
+                    "validation_ms": round(t_val_ms, 1),
+                    "firestore_ms": round(t_firestore_ms, 1),
+                    "ticket_generation_ms": 0.0,
+                    "total_ms": round(t_total_ms, 1)
+                }
+            }
         }

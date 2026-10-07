@@ -20,6 +20,8 @@ import { cleanIndianPhone } from '../../utils/phoneUtils';
 import IndianDobInput from '../common/IndianDobInput';
 import StudentDiscountNotice from '../common/StudentDiscountNotice';
 
+const normalizePhoneNumber = (value = '') => (value || '').replace(/\D/g, '').slice(0, 10);
+
 export default function StepParticipants({
   participants,
   onAddParticipant,
@@ -172,7 +174,7 @@ export default function StepParticipants({
               const categoryInfo = getParticipantCategory(participant.age);
               const isStudent = categoryInfo.category === 'STUDENT';
               const isAdult = categoryInfo.category === 'ADULT';
-              const pNum = participant.participantNumber || (participants.length - index);
+              const pNum = index + 1;
               const isLatest = index === 0 && participants.length > 1;
 
               return (
@@ -259,16 +261,20 @@ export default function StepParticipants({
                           type="tel"
                           inputMode="numeric"
                           placeholder="e.g. 9876543210"
-                          value={participant.phone || ''}
+                          value={participant.phone || participant.phoneNumber || ''}
                           maxLength={14}
-                          onChange={(e) => onUpdateParticipant(participant.id, 'phone', cleanIndianPhone(e.target.value))}
+                          onChange={(e) => {
+                            const cleaned = cleanIndianPhone(e.target.value);
+                            onUpdateParticipant(participant.id, 'phone', cleaned);
+                            onUpdateParticipant(participant.id, 'phoneNumber', cleaned);
+                          }}
                           className="w-full pl-16 pr-3.5 py-2.5 bg-stone-50/70 border border-stone-200 rounded-xl text-stone-900 text-sm placeholder:text-stone-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-medium font-mono"
                         />
                       </div>
-                      {participant.phone && participant.phone.length === 10 && (
+                      {(participant.phone || participant.phoneNumber) && (participant.phone || participant.phoneNumber).length === 10 && (
                         <p className="mt-1 text-[11px] font-bold text-emerald-800 flex items-center gap-1">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span>Mobile: <strong>+91 {participant.phone}</strong></span>
+                          <span>Mobile: <strong>+91 {participant.phone || participant.phoneNumber}</strong></span>
                         </p>
                       )}
                     </div>

@@ -25,11 +25,18 @@ class MockDocumentSnapshot:
         return self._data.copy() if self._data else None
 
 
+import json
+from typing import Callable
+
+_DEFAULT_DB_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "local_firestore_db.json")
+
+
 class MockDocumentReference:
-    def __init__(self, store: Dict[str, Dict[str, Any]], collection_name: str, doc_id: str):
+    def __init__(self, store: Dict[str, Dict[str, Any]], collection_name: str, doc_id: str, on_change: Optional[Callable] = None):
         self._store = store
         self._collection = collection_name
         self.id = doc_id
+        self._on_change = on_change
 
     def set(self, data: Dict[str, Any], merge: bool = False):
         if self._collection not in self._store:
@@ -38,6 +45,8 @@ class MockDocumentReference:
             self._store[self._collection][self.id].update(data)
         else:
             self._store[self._collection][self.id] = data.copy()
+        if self._on_change:
+            self._on_change()
 
     def get(self) -> MockDocumentSnapshot:
         coll = self._store.get(self._collection, {})
@@ -48,21 +57,27 @@ class MockDocumentReference:
         coll = self._store.get(self._collection, {})
         if self.id in coll:
             coll[self.id].update(data)
+            if self._on_change:
+                self._on_change()
         else:
             raise KeyError(f"Document {self.id} does not exist in {self._collection}")
 
     def delete(self):
         coll = self._store.get(self._collection, {})
-        coll.pop(self.id, None)
+        if self.id in coll:
+            coll.pop(self.id, None)
+            if self._on_change:
+                self._on_change()
 
 
 class MockCollectionReference:
-    def __init__(self, store: Dict[str, Dict[str, Any]], collection_name: str):
+    def __init__(self, store: Dict[str, Dict[str, Any]], collection_name: str, on_change: Optional[Callable] = None):
         self._store = store
         self._collection = collection_name
+        self._on_change = on_change
 
     def document(self, doc_id: str) -> MockDocumentReference:
-        return MockDocumentReference(self._store, self._collection, doc_id)
+        return MockDocumentReference(self._store, self._collection, doc_id, on_change=self._on_change)
 
     def stream(self) -> List[MockDocumentSnapshot]:
         coll = self._store.get(self._collection, {})
@@ -85,18 +100,43 @@ class MockCollectionReference:
 
 
 class MemoryFirestoreClient:
-    """Thread-safe in-memory store mirroring Firestore collection/document API."""
-    def __init__(self):
+    """Thread-safe persistent store mirroring Firestore collection/document API on disk."""
+    def __init__(self, persistence_file: Optional[str] = None):
+        self._persistence_file = persistence_file or _DEFAULT_DB_FILE
         self._store: Dict[str, Dict[str, Any]] = {}
+        self._load()
+
+    def _load(self):
+        try:
+            if os.path.isfile(self._persistence_file):
+                with open(self._persistence_file, "r", encoding="utf-8") as f:
+                    self._store = json.load(f)
+                logger.info(f"Loaded {sum(len(v) for v in self._store.values())} documents from {self._persistence_file}")
+        except Exception as e:
+            logger.warning(f"Could not load local database from {self._persistence_file}: {e}")
+
+    def _save(self):
+        try:
+            os.makedirs(os.path.dirname(self._persistence_file), exist_ok=True)
+            temp_file = f"{self._persistence_file}.tmp"
+            with open(temp_file, "w", encoding="utf-8") as f:
+                json.dump(self._store, f, indent=2, default=str)
+            if os.path.exists(self._persistence_file):
+                os.replace(temp_file, self._persistence_file)
+            else:
+                os.rename(temp_file, self._persistence_file)
+        except Exception as e:
+            logger.warning(f"Could not save local database to {self._persistence_file}: {e}")
 
     def collection(self, name: str) -> MockCollectionReference:
-        return MockCollectionReference(self._store, name)
+        return MockCollectionReference(self._store, name, on_change=self._save)
 
     def clear(self):
         self._store.clear()
+        self._save()
 
 
-# Global memory fallback for tests / development when serviceAccountKey is absent
+# Global persistent fallback for tests / development when serviceAccountKey is absent
 memory_db = MemoryFirestoreClient()
 
 
@@ -104,10 +144,35 @@ def init_firebase():
     """Initialize Firebase Admin SDK or configure Google verification."""
     global _firebase_app, _firestore_db
 
-    if _firebase_app:
+    if _firebase_app is not None and _firestore_db is not None:
         return
 
-    # Check potential service account paths
+    # 1. Check for raw or base64-encoded JSON credentials from environment variables
+    cred_json = (
+        getattr(settings, "FIREBASE_CREDENTIALS_JSON", "")
+        or os.environ.get("FIREBASE_CREDENTIALS_JSON", "")
+        or os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON", "")
+    )
+    if cred_json and cred_json.strip():
+        try:
+            raw = cred_json.strip()
+            if raw.startswith("{"):
+                cred_dict = json.loads(raw)
+            else:
+                import base64
+                cred_dict = json.loads(base64.b64decode(raw).decode("utf-8"))
+            cred = credentials.Certificate(cred_dict)
+            _firebase_app = firebase_admin.initialize_app(cred, {
+                'projectId': settings.FIREBASE_PROJECT_ID,
+                'storageBucket': getattr(settings, 'FIREBASE_STORAGE_BUCKET', f"{settings.FIREBASE_PROJECT_ID}.firebasestorage.app")
+            })
+            _firestore_db = firestore.client()
+            logger.info("Firebase Admin SDK initialized successfully from environment JSON credentials.")
+            return
+        except Exception as e:
+            logger.error(f"Failed to initialize Firebase from environment JSON credentials: {e}")
+
+    # 2. Check potential service account file paths
     candidate_paths = [
         settings.FIREBASE_CREDENTIALS_PATH,
         "serviceAccountKey.json",
@@ -121,7 +186,8 @@ def init_firebase():
             try:
                 cred = credentials.Certificate(cred_path)
                 _firebase_app = firebase_admin.initialize_app(cred, {
-                    'projectId': settings.FIREBASE_PROJECT_ID
+                    'projectId': settings.FIREBASE_PROJECT_ID,
+                    'storageBucket': getattr(settings, 'FIREBASE_STORAGE_BUCKET', f"{settings.FIREBASE_PROJECT_ID}.firebasestorage.app")
                 })
                 try:
                     _firestore_db = firestore.client()
@@ -132,7 +198,7 @@ def init_firebase():
             except Exception as e:
                 logger.warning(f"Failed to initialize Firebase with credential file {cred_path}: {e}")
 
-    # Fallback to Application Default Credentials if in GCP/production
+    # 3. Fallback to Application Default Credentials if in GCP/production
     has_gcp_env = any(os.environ.get(k) for k in ("K_SERVICE", "GAE_SERVICE", "GOOGLE_CLOUD_PROJECT"))
     adc_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
     has_adc = has_gcp_env or (adc_file and os.path.isfile(adc_file))
@@ -140,7 +206,8 @@ def init_firebase():
     if has_adc:
         try:
             _firebase_app = firebase_admin.initialize_app(options={
-                'projectId': settings.FIREBASE_PROJECT_ID
+                'projectId': settings.FIREBASE_PROJECT_ID,
+                'storageBucket': getattr(settings, 'FIREBASE_STORAGE_BUCKET', f"{settings.FIREBASE_PROJECT_ID}.firebasestorage.app")
             })
             try:
                 _firestore_db = firestore.client()
@@ -151,9 +218,19 @@ def init_firebase():
         except Exception as e:
             logger.warning(f"Could not initialize Firebase Admin with ADC: {e}")
 
-    # Running in environment without service account private key:
-    # Standard Firebase ID Tokens are verified cryptographically via Google's public x509 certs.
-    logger.info("Firebase token verification ready (using Google Public Certificate Authority for %s).", settings.FIREBASE_PROJECT_ID)
+    # 4. Strict Production Gate
+    if settings.ENVIRONMENT == "production":
+        err_msg = (
+            "CRITICAL PRODUCTION ERROR: Google Cloud Firestore is not connected! "
+            "A valid Firebase Admin service account credential must be configured via "
+            "GOOGLE_APPLICATION_CREDENTIALS, FIREBASE_CREDENTIALS_PATH, or FIREBASE_CREDENTIALS_JSON. "
+            "MemoryFirestoreClient fallback is strictly disabled in production mode."
+        )
+        logger.critical(err_msg)
+        raise RuntimeError(err_msg)
+
+    # In development/test mode without service account:
+    logger.info("Running in development/test mode: Google Public Cert verification active; local MemoryFirestoreClient active.")
     _firebase_app = None
     _firestore_db = None
 
@@ -214,6 +291,11 @@ def get_db():
     init_firebase()
     if _firestore_db is not None:
         return _firestore_db
+    if settings.ENVIRONMENT == "production":
+        raise RuntimeError(
+            "CRITICAL: Google Cloud Firestore is not connected in production mode. "
+            "Local file database fallback is strictly disabled in production."
+        )
     return memory_db
 
 
@@ -224,13 +306,14 @@ def verify_id_token(token: str) -> Dict[str, Any]:
     Returns decoded token dictionary with 'uid', 'email', etc.
     """
     global _firebase_app, _token_cache
-    init_firebase()
 
     if not token or not isinstance(token, str):
         raise ValueError("Invalid authentication token format.")
 
-    # Special handling for automated testing test tokens
+    # Special handling for automated testing test tokens (strictly forbidden in production)
     if token.startswith("test_token_") or token.startswith("mock_token_"):
+        if settings.ENVIRONMENT == "production":
+            raise ValueError("Test and mock authentication tokens are strictly forbidden in production.")
         parts = token.split(":")
         # Format: test_token_<uid>:<email>:<name>
         uid = parts[0].replace("test_token_", "").replace("mock_token_", "")
@@ -245,6 +328,8 @@ def verify_id_token(token: str) -> Dict[str, Any]:
             "auth_time": 1700000000,
             "firebase": {"sign_in_provider": "password"}
         }
+
+    init_firebase()
 
     # 0. Check in-memory token cache for active session tokens (instantaneous 0.01 ms return)
     now_ts = time.time()

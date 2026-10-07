@@ -2,6 +2,7 @@ import React from 'react';
 import { Calendar, Clock, MapPin, Sparkles, ChevronRight, Award, Flame, Users } from 'lucide-react';
 import { EVENT_CONFIG } from '../../config/eventConfig';
 import StudentDiscountNotice from '../common/StudentDiscountNotice';
+import { DandiyaSticksIcon, DiyaIcon, ToranGarland } from '../common/IndianFestiveMotifs';
 
 export default function Hero({ onRegisterClick, onExploreClick }) {
   return (
@@ -22,16 +23,21 @@ export default function Hero({ onRegisterClick, onExploreClick }) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         <div className="flex flex-col items-center text-center max-w-4xl mx-auto">
           
-          {/* Top Festive Badge */}
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-50 border border-amber-200/80 text-amber-800 text-xs md:text-sm font-bold shadow-sm mb-6 animate-in fade-in zoom-in-95 duration-500">
-            <Sparkles className="w-4 h-4 text-amber-500 fill-amber-500" />
+          {/* Top Festive Badge with Diya & Dandiya */}
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-50/90 border border-amber-300 text-amber-900 text-xs md:text-sm font-bold shadow-xs mb-6 animate-in fade-in zoom-in-95 duration-500">
+            <DiyaIcon className="w-4 h-4 text-amber-600 shrink-0" />
             <span>Presented by {EVENT_CONFIG.EVENT_ORGANIZER}</span>
+            <Sparkles className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
           </div>
 
-          {/* Uploaded Primary Event Logo Showcase */}
+          {/* Uploaded Primary Event Logo Showcase with Royal Filigree Corners */}
           <div className="relative mb-6 group">
-            <div className="absolute -inset-4 bg-gradient-to-r from-amber-200/40 via-red-200/30 to-amber-200/40 rounded-3xl blur-xl opacity-75 group-hover:opacity-100 transition duration-1000 group-hover:duration-200" />
-            <div className="relative bg-white/90 p-4 md:p-6 rounded-2xl border border-amber-200 shadow-festive max-w-xs md:max-w-md mx-auto">
+            <div className="absolute -inset-4 bg-gradient-to-r from-amber-300/40 via-red-300/30 to-amber-300/40 rounded-3xl blur-xl opacity-75 group-hover:opacity-100 transition duration-1000 group-hover:duration-200" />
+            <div className="relative bg-white/95 p-4 md:p-6 rounded-2xl border border-amber-300/90 shadow-festive max-w-xs md:max-w-md mx-auto">
+              <div className="filigree-corner-tl" />
+              <div className="filigree-corner-tr" />
+              <div className="filigree-corner-bl" />
+              <div className="filigree-corner-br" />
               <img 
                 src={EVENT_CONFIG.ASSETS.LOGO} 
                 alt={EVENT_CONFIG.EVENT_NAME}

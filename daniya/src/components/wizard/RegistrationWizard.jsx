@@ -14,6 +14,17 @@ import { formatToIndianDate, formatCurrentIndianDateTime } from '../../utils/ind
 import { isValidIndianPhone, cleanIndianPhone } from '../../utils/phoneUtils';
 import api from '../../services/api';
 
+const normalizePhoneNumber = (value = '') => (value || '').replace(/\D/g, '').slice(0, 10);
+const isValidIndianPhoneNumber = (value = '') => {
+  const digits = normalizePhoneNumber(value);
+  return /^\d{10}$/.test(digits) && /^[6789]/.test(digits);
+};
+
+const reindexParticipants = (list = []) => list.map((participant, index) => ({
+  ...participant,
+  participantNumber: index + 1
+}));
+
 export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin, onOpenAuth }) {
   const { user } = useAuth();
   const { addVerifiedRegistration } = usePasses();
@@ -25,6 +36,7 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
       name: '', 
       phone: '',
       dob: '', 
+      phoneNumber: '',
       age: '', 
       idProofUrl: '', 
       idProofName: '', 
@@ -42,28 +54,27 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
   // Participant management actions (Descending order: newest added participant is placed on top)
   const handleAddParticipant = () => {
     const nextId = `p${Date.now()}`;
-    const highestNumber = participants.reduce((max, p) => Math.max(max, p.participantNumber || 1), 0);
-    const nextNum = highestNumber + 1;
-    setParticipants(prev => [
+    setParticipants(prev => reindexParticipants([
       { 
         id: nextId, 
-        participantNumber: nextNum,
+        participantNumber: 1,
         name: '', 
         phone: '',
         dob: '', 
+        phoneNumber: '',
         age: '', 
         idProofUrl: '', 
         idProofName: '', 
         idProofType: 'Aadhaar Card (with DOB)' 
       },
       ...prev
-    ]);
+    ]));
     setValidationError('');
   };
 
   const handleRemoveParticipant = (id) => {
     if (participants.length <= 1) return;
-    setParticipants(prev => prev.filter(p => p.id !== id));
+    setParticipants(prev => reindexParticipants(prev.filter(p => p.id !== id)));
     setValidationError('');
   };
 
@@ -83,8 +94,7 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
   const handleProceedToReview = () => {
     for (let i = 0; i < participants.length; i++) {
       const p = participants[i];
-      const pNum = p.participantNumber || (participants.length - i);
-      const participantNum = String(pNum).padStart(2, '0');
+      const participantNum = String(i + 1).padStart(2, '0');
       const participantLabel = p.name?.trim() ? `Participant ${participantNum} (${p.name.trim()})` : `Participant ${participantNum}`;
 
       // 1. Mandatory Name
@@ -94,11 +104,12 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
       }
 
       // 2. Mandatory Phone Number (Valid Indian 10-Digit Mobile)
-      if (!p.phone?.trim()) {
+      const phoneVal = p.phone || p.phoneNumber;
+      if (!phoneVal?.trim()) {
         setValidationError(`Please enter the phone number for ${participantLabel}.`);
         return;
       }
-      if (!isValidIndianPhone(p.phone)) {
+      if (!isValidIndianPhone(phoneVal)) {
         setValidationError(`Please enter a valid 10-digit Indian mobile number for ${participantLabel}.`);
         return;
       }
@@ -200,6 +211,7 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
         name: '', 
         phone: '',
         dob: '', 
+        phoneNumber: '',
         age: '', 
         idProofUrl: '', 
         idProofName: '', 
@@ -395,7 +407,7 @@ export default function RegistrationWizard({ onRegistrationCreated, onOpenAdmin,
               <div className="bg-white rounded-3xl border border-red-200 p-8 text-center max-w-lg mx-auto shadow-sm">
                 <p className="text-red-700 font-bold text-base">Payment Not Verified</p>
                 <p className="text-xs text-stone-600 mt-1">
-                  Event passes are strictly protected and can only be issued after successful backend payment proof verification.
+                  Event passes are strictly protected and are issued immediately after payment verification.
                 </p>
                 <button
                   type="button"
